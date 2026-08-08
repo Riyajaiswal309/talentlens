@@ -1,5 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { AuditService } from './audit/audit.service';
+import { CandidateOwnershipGuard } from './guards/candidate-ownership.guard';
+import { JobAssignmentGuard } from './guards/job-assignment.guard';
 import { PrismaModule } from './prisma/prisma.module';
 
 /**
@@ -13,7 +15,7 @@ import { PrismaModule } from './prisma/prisma.module';
 @Global()
 @Module({
   imports: [PrismaModule],
-  providers: [AuditService],
-  exports: [AuditService, PrismaModule],
+  providers: [AuditService, CandidateOwnershipGuard, JobAssignmentGuard],
+  exports: [AuditService, CandidateOwnershipGuard, JobAssignmentGuard, PrismaModule],
 })
 export class CommonModule {}

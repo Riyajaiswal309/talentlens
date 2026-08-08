@@ -88,6 +88,8 @@ model Users {
   scorecards      Scorecard[]
   auditLogs       AuditLog[]
   scoreOverrides  MatchScore[]    @relation("ScoreOverriddenBy")
+  /// A login account may correspond to at most one candidate profile.
+  candidateProfile Candidate?     @relation("CandidateAccount")
 
   /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
   @@unique([companyId, email])
@@ -195,12 +197,33 @@ model Candidate {
   email    String
   phone    String?
 
+  /**
+   * APPROVED RESOLUTION of the candidate-identity PRD GAP (8 Aug 2026).
+   *
+   * PRD §17 defined no link between `candidates` (the applicant profile) and
+   * `users` (the login account), yet BR-06 requires an authenticated
+   * candidate to reach only their own data. This column is that link.
+   *
+   * NULLABLE BY DESIGN: a candidate profile may exist with no login account —
+   * for example one created by a recruiter, or an application submitted
+   * through the public form before any account exists. Code must never assume
+   * a candidate has a user.
+   *
+   * Used ONLY for BR-06 ownership enforcement.
+   *
+   * UNIQUE so one login account cannot claim two candidate profiles. In
+   * PostgreSQL a unique index ignores NULLs, so any number of candidates may
+   * remain unlinked — rule 1 of the approved resolution is preserved.
+   */
+  userId String? @unique @map("user_id") @db.Uuid
+
   /// BR-05 — right to erasure. Soft delete keeps audit_logs referentially
   /// intact while removing the candidate from operational views.
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  user         Users?        @relation("CandidateAccount", fields: [userId], references: [id], onDelete: SetNull)
   applications Application[]
 
   @@index([email])
