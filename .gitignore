@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+*.tsbuildinfo
+
+# environment — never commit real secrets (PRD §24.3)
+.env
+.env.local
+.env.*.local
+
+# python (apps/ai-service)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# test output
+coverage/

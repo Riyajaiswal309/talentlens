@@ -1,0 +1,38 @@
+# Local development infrastructure only (PRD §16.1).
+# Production infrastructure is Terraform/EKS and is NOT in scope until Phase 6.
+services:
+  postgres:
+    image: postgres:15-alpine # PRD §16 Table 16.1 — PostgreSQL 15
+    container_name: talentlens-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-talentlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-talentlens_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-talentlens}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-talentlens}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine # PRD §16 Table 16.1 — Redis 7
+    container_name: talentlens-redis
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:

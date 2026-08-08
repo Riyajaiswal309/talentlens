@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * PRD NFR4 / Phase 1 §8.23 — a visible focus ring on every interactive
+ * element, never removed. Declared once here so no component can lose it.
+ */
+@layer base {
+  :focus-visible {
+    outline: 2px solid theme('colors.primary.700');
+    outline-offset: 2px;
+  }
+}

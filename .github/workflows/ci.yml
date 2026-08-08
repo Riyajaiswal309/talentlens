@@ -1,0 +1,83 @@
+name: CI
+
+# PRD §27.2 stages 1-5. Stages 6-10 (image push, ArgoCD deploy) are Phase 6.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  node:
+    name: Lint, type-check, build, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20 # PRD §16 Table 16.1
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # PRD §27.2 stage 1
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type-check
+        run: pnpm typecheck
+
+      # PRD §27.2 stage 3
+      - name: Build
+        run: pnpm build
+
+      # PRD §27.2 stage 2
+      - name: Unit tests
+        run: pnpm test
+
+  python:
+    name: AI service scaffold
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # PRD §16 Table 16.1
+
+      - name: Install
+        working-directory: apps/ai-service
+        run: pip install -r requirements.txt
+
+      - name: Import check
+        working-directory: apps/ai-service
+        run: python -c "from app.main import app; print('ai-service imports OK')"
+
+  # PRD §27.2 stage 5 — dependency vulnerability scanning.
+  # Container image scanning (Trivy) is added in Phase 6 when images exist.
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Audit
+        run: pnpm audit --audit-level high
+        continue-on-error: true # advisory until M2.10 hardens the gate

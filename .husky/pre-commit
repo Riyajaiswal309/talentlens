@@ -1,0 +1,6 @@
+# pnpm is installed via corepack into ~/.local/bin, which is not on the PATH
+# that git hooks inherit. Add it explicitly so the hook works from any client
+# (terminal, VS Code, GUI git).
+export PATH="$HOME/.local/bin:$PATH"
+
+pnpm lint-staged
