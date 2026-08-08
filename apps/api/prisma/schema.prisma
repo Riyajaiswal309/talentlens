@@ -1,0 +1,417 @@
+// TalentLens — Prisma schema
+//
+// Source of truth: Master PRD v3.0 §17 (Database Design), Phase 1 Task 11,
+// Phase 1 → Phase 2 Handoff v1.1 §D.
+//
+// Conventions (PRD §17.1):
+//   snake_case tables · UUID primary keys · created_at + updated_at on every
+//   table · deleted_at on candidate-facing entities (BR-05 right to erasure).
+//
+// Three constraints cannot be expressed in Prisma schema language and are
+// applied as raw SQL in the migration:
+//   1. CHECK (composite_score BETWEEN 0 AND 1)      — PRD §17.3
+//   2. Partial index on resumes(parse_status)        — PRD §17.4
+//   3. REVOKE UPDATE, DELETE ON audit_logs           — PRD §17.3
+// See migration.sql and 0001_constraints.sql.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// PRD §24.2 Table 24.1 — the four roles, enumerated explicitly by the PRD.
+enum UserRole {
+  ADMIN
+  RECRUITER
+  HIRING_MANAGER
+  CANDIDATE
+}
+
+/// States implied by FR1.1 ("create, edit, publish, and close job postings").
+enum JobStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+
+/// PRD §17.4 indexes on parse_status <> 'completed'; FR2.5 requires intake to
+/// succeed independently of parsing, so PENDING and FAILED are both terminal
+/// states for an application that is still valid.
+enum ParseStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy and identity
+// ---------------------------------------------------------------------------
+
+model Company {
+  id         String   @id @default(uuid()) @db.Uuid
+  name       String
+  /// PRD NFR5 — data residency within the declared operating region.
+  dataRegion String   @map("data_region")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users Users[]
+  jobs  Job[]
+
+  @@map("companies")
+}
+
+model Users {
+  id           String   @id @default(uuid()) @db.Uuid
+  companyId    String   @map("company_id") @db.Uuid
+  email        String
+  role         UserRole
+  /// PRD §24.1 — Argon2id. Null for SSO-only accounts (OAuth2/OIDC).
+  passwordHash String?  @map("password_hash")
+  lastActiveAt DateTime? @map("last_active_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdJobs     Job[]           @relation("JobCreatedBy")
+  jobAssignments  JobAssignment[]
+  stageChanges    StageHistory[]
+  scorecards      Scorecard[]
+  auditLogs       AuditLog[]
+  scoreOverrides  MatchScore[]    @relation("ScoreOverriddenBy")
+
+  /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
+  @@unique([companyId, email])
+  @@index([companyId, role])
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Jobs
+// ---------------------------------------------------------------------------
+
+model Job {
+  id        String    @id @default(uuid()) @db.Uuid
+  companyId String    @map("company_id") @db.Uuid
+  createdBy String    @map("created_by") @db.Uuid
+
+  /// FR1.2 — structured fields.
+  title           String
+  department      String?
+  location        String?
+  employmentType  String? @map("employment_type")
+  experienceLevel String? @map("experience_level")
+  description     String?
+  /// FR1.2 — required skills. jsonb so PRD §17.4's GIN index applies.
+  requiredSkills  Json    @default("[]") @map("required_skills")
+
+  /// FR1.4 / BR-04 — Administrator-only toggle. Defaults off: with no AI in
+  /// Phase 2, FR4.5 (unscored, reverse-chronological) is the correct default.
+  aiScoringEnabled Boolean @default(false) @map("ai_scoring_enabled")
+
+  status JobStatus @default(DRAFT)
+  /// PRD §7 — North Star metric measures from jobs.published_at.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  closedAt    DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator     Users           @relation("JobCreatedBy", fields: [createdBy], references: [id])
+  assignments JobAssignment[]
+  stages      PipelineStage[]
+  applications Application[]
+
+  @@index([companyId, status])
+  /// PRD §17.4 — GIN index for skill-based lookup.
+  @@index([requiredSkills], type: Gin)
+  @@map("jobs")
+}
+
+/// APPROVED DECISION B1 (8 Aug 2026).
+///
+/// PRD §24.2 grants Hiring Managers access to "assigned jobs only", but PRD
+/// §17 defines no table storing the assignment. Without this table the
+/// permission is unimplementable. A PRD §17 amendment remains outstanding.
+model JobAssignment {
+  id     String @id @default(uuid()) @db.Uuid
+  jobId  String @map("job_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  job  Job   @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, userId])
+  /// Serves GET /v1/me/reviews — "which jobs is this HM assigned to?"
+  @@index([userId])
+  @@map("job_assignments")
+}
+
+/// APPROVED DECISION B2 (8 Aug 2026).
+///
+/// FR5.1 requires configurable stages per job, so stages are rows rather than
+/// an enum. Each job is seeded with the six PRD §14.1 defaults
+/// (Applied, Screening, Interview, Offer, Hired, Rejected) and may then be
+/// edited. "Shortlisted" is a per-job addition, never a global stage.
+model PipelineStage {
+  id       String @id @default(uuid()) @db.Uuid
+  jobId    String @map("job_id") @db.Uuid
+  name     String
+  position Int
+  /// BR-01 — terminal stages require explicit human confirmation in the UI.
+  /// No AI-originated path may write them.
+  isTerminal Boolean @default(false) @map("is_terminal")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, position])
+  @@unique([jobId, name])
+  @@map("pipeline_stages")
+}
+
+// ---------------------------------------------------------------------------
+// Candidates and applications
+// ---------------------------------------------------------------------------
+
+model Candidate {
+  id       String  @id @default(uuid()) @db.Uuid
+  fullName String  @map("full_name")
+  email    String
+  phone    String?
+
+  /// BR-05 — right to erasure. Soft delete keeps audit_logs referentially
+  /// intact while removing the candidate from operational views.
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  applications Application[]
+
+  @@index([email])
+  @@map("candidates")
+}
+
+model Application {
+  id          String @id @default(uuid()) @db.Uuid
+  jobId       String @map("job_id") @db.Uuid
+  candidateId String @map("candidate_id") @db.Uuid
+
+  /// Stage name, not an FK — stages are per-job configurable data (B2) and
+  /// PRD §17.2 models this column as a value, matching stage_history.
+  currentStage String   @map("current_stage")
+  appliedAt    DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  job          Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate    Candidate      @relation(fields: [candidateId], references: [id])
+  resume       Resume?
+  matchScores  MatchScore[]
+  stageHistory StageHistory[]
+  scorecards   Scorecard[]
+
+  /// PRD §17.4 — composite index serving the pipeline board load.
+  @@index([jobId, currentStage])
+  @@index([candidateId])
+  @@map("applications")
+}
+
+model Resume {
+  id            String      @id @default(uuid()) @db.Uuid
+  applicationId String      @unique @map("application_id") @db.Uuid
+  s3Key         String      @map("s3_key")
+  mimeType      String      @map("mime_type")
+  parseStatus   ParseStatus @default(PENDING) @map("parse_status")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application   Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  parsedProfile ParsedProfile?
+
+  // PRD §17.4 also requires a PARTIAL index limited to rows where
+  // parse_status <> 'COMPLETED'. Prisma cannot express a WHERE clause on an
+  // index, so it is created as raw SQL in the migration.
+  @@map("resumes")
+}
+
+/// Populated by the AI parser in Phase 3. Created in Phase 2 because FR2.5
+/// requires the manual-entry fallback path to have storage when no parser
+/// exists.
+model ParsedProfile {
+  id       String @id @default(uuid()) @db.Uuid
+  resumeId String @unique @map("resume_id") @db.Uuid
+
+  skills          Json  @default("[]")
+  workHistory     Json  @default("[]") @map("work_history")
+  education       Json  @default("[]")
+  certifications  Json  @default("[]")
+  /// FR3.2 — per-field confidence; values below threshold are flagged for
+  /// review rather than silently accepted.
+  confidenceScore Float? @map("confidence_score")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  resume Resume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("parsed_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// AI scoring — schema only in Phase 2; nothing writes these tables until P3
+// ---------------------------------------------------------------------------
+
+/// PRD §19.1 — model registry pointer. Created in Phase 2 because
+/// match_scores.model_version_id is NOT NULL and references it, so the FK
+/// target must exist for the schema to be valid.
+model AiModelVersion {
+  id         String    @id @default(uuid()) @db.Uuid
+  modelName  String    @map("model_name")
+  versionTag String    @map("version_tag")
+  status     String
+  promotedAt DateTime? @map("promoted_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  matchScores MatchScore[]
+
+  @@unique([modelName, versionTag])
+  @@map("ai_model_versions")
+}
+
+/// The table carrying the platform's core compliance guarantees (PRD §17.3).
+///
+/// BR-02  rationale is NOT NULL — a score can never exist without its reason.
+/// FR4.4  model_version_id and feature_vector are NOT NULL — reproducibility.
+/// §21.3  re-scoring APPENDS a row; it never mutates an existing one, so the
+///        relation to Application is one-to-many.
+model MatchScore {
+  id             String @id @default(uuid()) @db.Uuid
+  applicationId  String @map("application_id") @db.Uuid
+  modelVersionId String @map("model_version_id") @db.Uuid
+
+  /// CHECK (composite_score BETWEEN 0 AND 1) is added as raw SQL —
+  /// Prisma cannot express CHECK constraints.
+  compositeScore Decimal @map("composite_score") @db.Decimal(5, 4)
+
+  /// BR-02 — NOT NULL by omission of `?`. This is the enforcement point.
+  rationale     Json
+  /// FR4.4 — inputs retained so any score can be reproduced during an audit.
+  featureVector Json @map("feature_vector")
+
+  /// FR4.3 / BR-03 — override retains the original score alongside it.
+  overriddenBy   String?  @map("overridden_by") @db.Uuid
+  overrideReason String?  @map("override_reason")
+  scoredAt       DateTime @default(now()) @map("scored_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application  Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  modelVersion AiModelVersion @relation(fields: [modelVersionId], references: [id])
+  overrider    Users?         @relation("ScoreOverriddenBy", fields: [overriddenBy], references: [id])
+
+  /// PRD §17.4 — latest score per application.
+  @@index([applicationId, scoredAt(sort: Desc)])
+  /// PRD §17.4 — GIN index for rationale search during audit.
+  @@index([rationale], type: Gin)
+  @@map("match_scores")
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline history and collaboration
+// ---------------------------------------------------------------------------
+
+/// FR5.4 — every stage transition recorded with actor and timestamp.
+/// Append-only by convention here; the audit trail proper is audit_logs.
+model StageHistory {
+  id            String  @id @default(uuid()) @db.Uuid
+  applicationId String  @map("application_id") @db.Uuid
+  fromStage     String? @map("from_stage")
+  toStage       String  @map("to_stage")
+  /// BR-01 — NOT NULL. Every transition has a human actor; no system-actor
+  /// path exists to write this table.
+  changedBy     String  @map("changed_by") @db.Uuid
+  changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  actor       Users       @relation(fields: [changedBy], references: [id])
+
+  @@index([applicationId, changedAt(sort: Desc)])
+  @@map("stage_history")
+}
+
+/// FR5.3 — structured feedback visible to the full hiring team.
+model Scorecard {
+  id            String @id @default(uuid()) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  authorId      String @map("author_id") @db.Uuid
+  rating        Int
+  feedback      String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  author      Users       @relation(fields: [authorId], references: [id])
+
+  @@index([applicationId])
+  @@map("scorecards")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+/// PRD §17.3, FR8.3, NFR8, NFR11.
+///
+/// Append-only ENFORCED BY GRANT, not by application convention: the
+/// application database role holds INSERT and SELECT only. The REVOKE
+/// statements live in the migration.
+///
+/// Never cascade-deleted (PRD §18): erasing a candidate detaches PII while
+/// leaving the audit skeleton resolvable, which is why resource_id is a plain
+/// UUID column rather than a foreign key.
+model AuditLog {
+  id            String  @id @default(uuid()) @db.Uuid
+  actorId       String  @map("actor_id") @db.Uuid
+  action        String
+  resourceType  String  @map("resource_type")
+  resourceId    String  @map("resource_id") @db.Uuid
+  beforeState   Json?   @map("before_state")
+  afterState    Json?   @map("after_state")
+  /// NFR11 — traceable end to end, including across asynchronous processing.
+  correlationId String  @map("correlation_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  actor Users @relation(fields: [actorId], references: [id])
+
+  /// PRD §17.4 — per-resource audit reconstruction.
+  @@index([resourceId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([action, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}
