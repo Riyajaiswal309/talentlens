@@ -7,6 +7,13 @@ dist/
 build/
 *.tsbuildinfo
 
+# TypeScript must never emit into source. Guard against a misconfigured
+# tsconfig re-introducing these (happened once in M2.1).
+apps/web/src/**/*.js
+apps/web/src/**/*.d.ts
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
+
 # environment — never commit real secrets (PRD §24.3)
 .env
 .env.local
