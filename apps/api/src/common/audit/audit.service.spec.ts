@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { AuditActorType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { AuditService } from './audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -53,6 +54,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
 
     await service.record({
       actorId,
+      actorType: AuditActorType.USER,
       action: 'job.published',
       resourceType: 'job',
       resourceId,
@@ -74,6 +76,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     const resourceId = randomUUID();
     await service.record({
       actorId,
+      actorType: AuditActorType.USER,
       action: 'job.published',
       resourceType: 'job',
       resourceId,
@@ -89,6 +92,92 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     await expect(prisma.$executeRawUnsafe(`DELETE FROM audit_logs`)).rejects.toThrow(
       /permission denied/i,
     );
+  });
+
+  /**
+   * APPROVED RESOLUTION of the audit-actor PRD GAP (8 Aug 2026).
+   *
+   * Asserted against the real database rather than a mock: the guarantee is a
+   * CHECK constraint, so only Postgres can confirm it holds.
+   */
+  describe('public actions (FR2.1 application.submitted)', () => {
+    it('PERSISTS actor_type = PUBLIC with actor_id = NULL', async () => {
+      const resourceId = randomUUID();
+
+      await service.record({
+        actorId: null,
+        actorType: AuditActorType.PUBLIC,
+        action: 'application.submitted',
+        resourceType: 'application',
+        resourceId,
+        correlationId,
+        afterState: { currentStage: 'Applied' },
+      });
+
+      const row = await prisma.auditLog.findFirst({ where: { resourceId } });
+
+      expect(row).not.toBeNull();
+      expect(row?.actorType).toBe(AuditActorType.PUBLIC);
+      expect(row?.actorId).toBeNull();
+      expect(row?.action).toBe('application.submitted');
+      expect(row?.correlationId).toBe(correlationId);
+    });
+
+    it('PERSISTS actor_type = USER with a real actor_id', async () => {
+      const resourceId = randomUUID();
+
+      await service.record({
+        actorId,
+        actorType: AuditActorType.USER,
+        action: 'job.created',
+        resourceType: 'job',
+        resourceId,
+        correlationId,
+      });
+
+      const row = await prisma.auditLog.findFirst({ where: { resourceId } });
+
+      expect(row?.actorType).toBe(AuditActorType.USER);
+      expect(row?.actorId).toBe(actorId);
+    });
+
+    it('rejects USER with no actorId before reaching the database', async () => {
+      await expect(
+        service.record({
+          actorId: null,
+          actorType: AuditActorType.USER,
+          action: 'job.created',
+          resourceType: 'job',
+          resourceId: randomUUID(),
+          correlationId,
+        }),
+      ).rejects.toThrow(/USER but carries no actorId/);
+    });
+
+    it('rejects PUBLIC carrying an actorId before reaching the database', async () => {
+      await expect(
+        service.record({
+          actorId,
+          actorType: AuditActorType.PUBLIC,
+          action: 'application.submitted',
+          resourceType: 'application',
+          resourceId: randomUUID(),
+          correlationId,
+        }),
+      ).rejects.toThrow(/PUBLIC but carries an actorId/);
+    });
+
+    it('the DATABASE itself rejects a bad pairing, not just the service', async () => {
+      // Bypasses AuditService entirely to prove the CHECK constraint is the
+      // real authority — a future code path cannot write a misleading row.
+      await expect(
+        prisma.$executeRawUnsafe(
+          `INSERT INTO audit_logs (id, actor_id, actor_type, action, resource_type, resource_id, correlation_id)
+           VALUES (gen_random_uuid(), NULL, 'USER', 'bad', 'x', gen_random_uuid(), $1)`,
+          correlationId,
+        ),
+      ).rejects.toThrow(/audit_logs_actor_pairing/);
+    });
   });
 
   it('exposes no update or delete method on the service', () => {

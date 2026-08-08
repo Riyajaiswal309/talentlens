@@ -33,6 +33,30 @@ services:
       timeout: 5s
       retries: 5
 
+  # PRD §16.1 names localstack in the local compose file; PRD §16 Table 16.1
+  # makes S3 the object store for resumes. Only the s3 service is enabled —
+  # SQS arrives with BullMQ, and OpenSearch is not needed until Phase 3 search.
+  localstack:
+    image: localstack/localstack:3 # S3-compatible API for local development
+    container_name: talentlens-localstack
+    restart: unless-stopped
+    environment:
+      SERVICES: s3
+      # Buckets are created by Terraform in production; locally the init
+      # script below stands in for that so the API never has to create one.
+      RESUME_BUCKET: ${S3_BUCKET:-talentlens-resumes-dev}
+    ports:
+      - '${LOCALSTACK_PORT:-4566}:4566'
+    volumes:
+      - localstack_data:/var/lib/localstack
+      - ./infra/localstack/init-s3.sh:/etc/localstack/init/ready.d/init-s3.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'awslocal s3api head-bucket --bucket "$$RESUME_BUCKET" || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   postgres_data:
   redis_data:
+  localstack_data:

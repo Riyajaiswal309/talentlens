@@ -1,5 +1,5 @@
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '@prisma/client';
+import { AuditActorType, UserRole } from '@prisma/client';
 import { of } from 'rxjs';
 import type { CallHandler, ExecutionContext } from '@nestjs/common';
 import { AuditInterceptor } from './audit.interceptor';
@@ -64,6 +64,7 @@ describe('AuditInterceptor (BR-03, PRD §15.1 principle 4)', () => {
       expect(auditService.record).toHaveBeenCalledWith(
         expect.objectContaining({
           actorId: 'user-1',
+          actorType: AuditActorType.USER,
           action: 'job.published',
           resourceType: 'job',
           resourceId: 'resource-1',
@@ -149,20 +150,58 @@ describe('AuditInterceptor (BR-03, PRD §15.1 principle 4)', () => {
   });
 
   /**
-   * PRD GAP — REQUIRES DECISION.
+   * APPROVED RESOLUTION of the audit-actor PRD GAP (8 Aug 2026).
    *
-   * audit_logs.actor_id is NOT NULL REFERENCES users(id), but Handoff §I
-   * requires `application.submitted` to be audited and POST /v1/applications
-   * is Public. Current behaviour: warn and skip rather than crash or invent a
-   * synthetic actor. Locked in by this test so the decision is not forgotten.
+   * This test was previously inverted: it asserted that a public auditable
+   * action was SKIPPED, because audit_logs.actor_id was NOT NULL and no row
+   * could be written. With actor_type in place, the action is now RECORDED as
+   * PUBLIC with a null actor. FR2.1's `application.submitted` on the public
+   * POST /v1/applications depends on exactly this.
    */
-  it('PRD GAP: skips (with a warning) when an auditable action has no actor', (done) => {
+  it('records a public auditable action as PUBLIC with a null actor', (done) => {
     markAuditable({ action: 'application.submitted', resourceType: 'application' });
     const { context } = makeContext({ user: undefined });
 
     interceptor.intercept(context, next).subscribe(() => {
-      expect(auditService.record).not.toHaveBeenCalled();
+      expect(auditService.record).toHaveBeenCalledTimes(1);
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actorId: null,
+          actorType: AuditActorType.PUBLIC,
+          action: 'application.submitted',
+          resourceType: 'application',
+        }),
+      );
       done();
+    });
+  });
+
+  it('a public auditable action still fails the request if its audit write fails', (done) => {
+    markAuditable({ action: 'application.submitted', resourceType: 'application' });
+    const { context } = makeContext({ user: undefined });
+    auditService.record.mockRejectedValue(new Error('db down'));
+
+    // BR-03 applies regardless of who the actor is: an unaudited submission
+    // must not be acknowledged as successful.
+    interceptor.intercept(context, next).subscribe({
+      next: () => done.fail('response must not be emitted when auditing fails'),
+      error: (err: Error) => {
+        expect(err.message).toBe('db down');
+        done();
+      },
+    });
+  });
+
+  it('still requires a correlation id for a public action (NFR11)', (done) => {
+    markAuditable({ action: 'application.submitted', resourceType: 'application' });
+    const { context } = makeContext({ user: undefined, correlationId: undefined });
+
+    interceptor.intercept(context, next).subscribe({
+      next: () => done.fail('expected an error'),
+      error: (err: Error) => {
+        expect(err.message).toContain('correlation ID');
+        done();
+      },
     });
   });
 });

@@ -36,4 +36,17 @@ export interface RequestContext extends Request {
   correlationId?: string;
   /** Populated by handlers on auditable routes. */
   auditState?: AuditState;
+  /**
+   * Set by a handler that changed NOTHING, so @Audit() writes no record.
+   *
+   * PRD §17.3 audits actions that change state. An idempotent replay returns
+   * the original response without touching a row, so auditing it again would
+   * put two `application.submitted` records against one application and make
+   * the trail overstate what happened.
+   *
+   * Deliberately narrow: it suppresses the record only when the handler
+   * asserts there was no state change. It is not a way to opt a mutating
+   * route out of auditing, which BR-03 forbids.
+   */
+  auditSuppressed?: boolean;
 }

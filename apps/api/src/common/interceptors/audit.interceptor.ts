@@ -1,5 +1,6 @@
-import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { AuditActorType } from '@prisma/client';
 import { concatMap, type Observable } from 'rxjs';
 import { AUDIT_KEY, type AuditMetadata } from '../decorators/audit.decorator';
 import { AuditService } from '../audit/audit.service';
@@ -25,8 +26,6 @@ import type { RequestContext } from '../types/authenticated-request';
  */
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(AuditInterceptor.name);
-
   constructor(
     private readonly reflector: Reflector,
     private readonly auditService: AuditService,
@@ -45,6 +44,17 @@ export class AuditInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       concatMap(async (responseBody: unknown) => {
+        /*
+         * A handler may declare that it changed nothing — an idempotent
+         * replay returns the original response without touching a row. PRD
+         * §17.3 records state changes, so writing a second record here would
+         * make the trail claim an event that did not happen.
+         *
+         * Checked AFTER the handler runs, never before: the handler is what
+         * decides, and a route cannot opt out of auditing in advance (BR-03).
+         */
+        if (request.auditSuppressed) return responseBody;
+
         await this.write(metadata, request, responseBody);
         return responseBody;
       }),
@@ -59,27 +69,22 @@ export class AuditInterceptor implements NestInterceptor {
     const actor = request.user;
 
     /*
-     * PRD GAP — REQUIRES DECISION.
+     * APPROVED RESOLUTION of the audit-actor PRD GAP (8 Aug 2026).
      *
-     * audit_logs.actor_id is NOT NULL REFERENCES users(id) (PRD §17.3), but
-     * Handoff §I requires `application.submitted` (FR2.1) to be audited and
-     * POST /v1/applications is PUBLIC — an unauthenticated candidate. A public
-     * action that must be audited therefore cannot be, because it has no
-     * users row to reference.
+     * Handoff §I requires `application.submitted` (FR2.1) to be audited, but
+     * POST /v1/applications is Public — an unauthenticated candidate with no
+     * users row. Rather than invent a synthetic system user, the record now
+     * carries a discriminator:
      *
-     * Not resolved here. Inventing a synthetic "system" user or making the
-     * column nullable would both be schema/product decisions, not
-     * implementation details. Until it is decided, unauthenticated auditable
-     * actions are logged as a warning and skipped rather than silently
-     * dropped. No such route exists yet, so nothing is currently missed.
+     *   USER   — authenticated action, actor_id present
+     *   PUBLIC — unauthenticated action, actor_id NULL
+     *
+     * A public auditable action is therefore RECORDED, not skipped. The
+     * pairing is enforced by a database CHECK constraint, so a row can never
+     * claim an actor it does not have.
      */
-    if (!actor) {
-      this.logger.warn(
-        `Auditable action '${metadata.action}' had no authenticated actor and was NOT recorded. ` +
-          'See PRD GAP: audit_logs.actor_id is NOT NULL but some audited actions are public.',
-      );
-      return;
-    }
+    const actorType = actor ? AuditActorType.USER : AuditActorType.PUBLIC;
+    const actorId = actor?.id ?? null;
 
     const correlationId = request.correlationId;
     if (!correlationId) {
@@ -102,7 +107,8 @@ export class AuditInterceptor implements NestInterceptor {
     }
 
     await this.auditService.record({
-      actorId: actor.id,
+      actorId,
+      actorType,
       action: metadata.action,
       resourceType: metadata.resourceType,
       resourceId,

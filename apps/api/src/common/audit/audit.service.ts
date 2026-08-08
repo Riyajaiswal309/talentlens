@@ -1,9 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { AuditActorType, type Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface AuditRecord {
-  actorId: string;
+  /**
+   * NULL only when actorType is PUBLIC (approved resolution, 8 Aug 2026).
+   * The pairing is enforced by a database CHECK constraint.
+   */
+  actorId: string | null;
+  actorType: AuditActorType;
   action: string;
   resourceType: string;
   resourceId: string;
@@ -35,9 +40,23 @@ export class AuditService {
    * mutation be acknowledged as successful, which BR-03 forbids.
    */
   async record(entry: AuditRecord): Promise<void> {
+    /*
+     * The database CHECK constraint is the authority on this pairing. The
+     * assertion here exists only to fail with a message a developer can act
+     * on, rather than a raw constraint violation from Postgres.
+     */
+    const usesActor = entry.actorType === AuditActorType.USER;
+    if (usesActor && !entry.actorId) {
+      throw new Error(`Audit action '${entry.action}' is USER but carries no actorId`);
+    }
+    if (!usesActor && entry.actorId) {
+      throw new Error(`Audit action '${entry.action}' is PUBLIC but carries an actorId`);
+    }
+
     await this.prisma.auditLog.create({
       data: {
         actorId: entry.actorId,
+        actorType: entry.actorType,
         action: entry.action,
         resourceType: entry.resourceType,
         resourceId: entry.resourceId,
@@ -47,6 +66,8 @@ export class AuditService {
       },
     });
 
-    this.logger.debug(`audit: ${entry.action} ${entry.resourceType}:${entry.resourceId}`);
+    this.logger.debug(
+      `audit: ${entry.action} ${entry.resourceType}:${entry.resourceId} (${entry.actorType})`,
+    );
   }
 }

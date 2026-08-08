@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from './common/common.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AuthModule } from './modules/auth/auth.module';
+import { ApplicationsModule } from './modules/applications/applications.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { HealthController } from './health/health.controller';
 
@@ -22,6 +23,7 @@ import { HealthController } from './health/health.controller';
     CommonModule,
     AuthModule,
     JobsModule,
+    ApplicationsModule,
   ],
   controllers: [HealthController],
 })

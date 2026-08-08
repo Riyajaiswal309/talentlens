@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
 import type { CreateJobDto } from './dto/create-job.dto';
 import type { ListJobsQueryDto } from './dto/list-jobs.query.dto';
+import type { ListPublicJobsQueryDto } from './dto/list-public-jobs.query.dto';
 import type { UpdateJobDto } from './dto/update-job.dto';
 
 /** Stages that terminate an application (BR-01 — human confirmation required). */
@@ -120,6 +121,63 @@ export class JobsService {
     const data = hasMore ? rows.slice(0, limit) : rows;
 
     return { data, nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null };
+  }
+
+  /**
+   * GET /v1/public/jobs — the public job board (Handoff §B row 10, CA-01).
+   *
+   * PUBLISHED only. A DRAFT has never been public, and a CLOSED role is not
+   * advertised — a job board that lists roles nobody can apply to wastes the
+   * candidate's time, and Phase 1 CA-01 treats "closed" as a state reached by
+   * following an existing link rather than one discovered by browsing.
+   *
+   * NOT tenant-scoped, and that is the point: the caller is anonymous, so
+   * there is no tenant to scope to. Every company's published roles appear on
+   * one board. This is the single place in the API where an unscoped `job`
+   * query is correct, which is why the PUBLISHED filter carries so much
+   * weight — it is the only thing standing between this endpoint and every
+   * requisition in the database.
+   */
+  async listPublic(
+    query: ListPublicJobsQueryDto,
+  ): Promise<{ data: Job[]; nextCursor: string | null }> {
+    const limit = query.limit ?? DEFAULT_PAGE_SIZE;
+
+    const rows = await this.prisma.job.findMany({
+      where: { status: JobStatus.PUBLISHED },
+      // Newest opening first. `id` breaks ties so the ordering is total and
+      // the cursor cannot skip or repeat a row between pages.
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    });
+
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+
+    return { data, nextCursor: hasMore ? (data[data.length - 1]?.id ?? null) : null };
+  }
+
+  /**
+   * GET /v1/public/jobs/:id — public job detail (Handoff §B row 11, CA-01).
+   *
+   * PUBLISHED **or CLOSED**. Phase 1 CA-01 lists "Closed job" and "not found"
+   * as two DISTINCT states this screen must render, and this endpoint is the
+   * only thing feeding it — if a closed role 404'd, the closed state could
+   * never be shown. A closed role was public until it closed, so nothing is
+   * disclosed by admitting it still exists.
+   *
+   * A DRAFT is indistinguishable from a job that does not exist. That one has
+   * never been public, and the identical treatment is what stops this
+   * endpoint being used to enumerate unannounced requisitions.
+   */
+  async findOnePublic(id: string): Promise<Job> {
+    const job = await this.prisma.job.findFirst({
+      where: { id, status: { in: [JobStatus.PUBLISHED, JobStatus.CLOSED] } },
+    });
+
+    if (!job) throw new NotFoundException('That role is not available');
+    return job;
   }
 
   /**

@@ -42,6 +42,26 @@ enum JobStatus {
   CLOSED
 }
 
+/**
+ * APPROVED RESOLUTION of the audit-actor PRD GAP (8 Aug 2026).
+ *
+ * PRD §17.3 declared audit_logs.actor_id NOT NULL REFERENCES users(id), yet
+ * Handoff §I requires `application.submitted` (FR2.1) to be audited and
+ * POST /v1/applications is Public — an unauthenticated candidate with no
+ * users row. A required audit record was therefore unwritable.
+ *
+ * Resolved by discriminating the actor instead of inventing a system user:
+ *   USER   — authenticated action; actor_id MUST be present
+ *   PUBLIC — unauthenticated action; actor_id MUST be NULL
+ *
+ * The pairing is enforced by a database CHECK constraint, not by convention,
+ * so an audit row can never claim a user it does not have.
+ */
+enum AuditActorType {
+  USER
+  PUBLIC
+}
+
 /// PRD §17.4 indexes on parse_status <> 'completed'; FR2.5 requires intake to
 /// succeed independently of parsing, so PENDING and FAILED are both terminal
 /// states for an application that is still valid.
@@ -418,8 +438,12 @@ model Scorecard {
 /// leaving the audit skeleton resolvable, which is why resource_id is a plain
 /// UUID column rather than a foreign key.
 model AuditLog {
-  id            String  @id @default(uuid()) @db.Uuid
-  actorId       String  @map("actor_id") @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
+
+  /// NULL only when actorType is PUBLIC. See AuditActorType.
+  actorId   String?        @map("actor_id") @db.Uuid
+  actorType AuditActorType @default(USER) @map("actor_type")
+
   action        String
   resourceType  String  @map("resource_type")
   resourceId    String  @map("resource_id") @db.Uuid
@@ -430,11 +454,18 @@ model AuditLog {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  actor Users @relation(fields: [actorId], references: [id])
+  /**
+   * Restrict, not SetNull. PRD §18: the audit log is never cascade-deleted.
+   * SetNull would also break the actor-pairing CHECK — actor_id would become
+   * NULL while actor_type remained USER — so deleting a user with audit
+   * history is refused outright.
+   */
+  actor Users? @relation(fields: [actorId], references: [id], onDelete: Restrict)
 
   /// PRD §17.4 — per-resource audit reconstruction.
   @@index([resourceId, createdAt(sort: Desc)])
   @@index([actorId, createdAt(sort: Desc)])
+  @@index([actorType, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
   @@map("audit_logs")
 }
