@@ -19,8 +19,25 @@
  * Idempotent: safe to re-run.
  */
 import { PrismaClient, UserRole, JobStatus } from '@prisma/client';
+import { Algorithm, hash } from '@node-rs/argon2';
 
 const prisma = new PrismaClient();
+
+/**
+ * Local development password for every seeded account (PRD §24.1 requires a
+ * 12-character minimum). Development-only, and never used outside seeding.
+ */
+const SEED_PASSWORD = 'DevPassword123!';
+
+/** Same Argon2id parameters as PasswordService (OWASP baseline). */
+async function hashPassword(plaintext: string): Promise<string> {
+  return hash(plaintext, {
+    algorithm: Algorithm.Argon2id,
+    memoryCost: 19456,
+    timeCost: 2,
+    parallelism: 1,
+  });
+}
 
 /** PRD §14.1 — the six default stages. Defaults only; FR5.1 allows per-job edits. */
 const DEFAULT_STAGES = [
@@ -52,10 +69,10 @@ async function main(): Promise<void> {
   // -------------------------------------------------------------------------
   // Users — one per PRD §24.2 role.
   //
-  // password_hash is intentionally NULL. PRD §24.1 requires Argon2id, and
-  // hashing belongs to AuthModule in M2.4. Seeding a fake hash now would be
-  // misleading; these accounts become usable when M2.4 sets real hashes.
+  // Hashed with Argon2id (PRD §24.1) now that M2.4 exists. All four share
+  // SEED_PASSWORD for local development only.
   // -------------------------------------------------------------------------
+  const passwordHash = await hashPassword(SEED_PASSWORD);
   const users: Array<{ email: string; role: UserRole }> = [
     { email: 'admin@talentlens.local', role: UserRole.ADMIN },
     { email: 'recruiter@talentlens.local', role: UserRole.RECRUITER },
@@ -67,8 +84,8 @@ async function main(): Promise<void> {
   for (const u of users) {
     const row = await prisma.users.upsert({
       where: { companyId_email: { companyId: company.id, email: u.email } },
-      update: {},
-      create: { companyId: company.id, email: u.email, role: u.role, passwordHash: null },
+      update: { passwordHash },
+      create: { companyId: company.id, email: u.email, role: u.role, passwordHash },
     });
     created[u.role] = row.id;
     console.log(`  user:    ${row.email.padEnd(34)} ${row.role}`);
@@ -146,6 +163,7 @@ async function main(): Promise<void> {
     create: { jobId: job.id, userId: hmId },
   });
   console.log(`  assign:  hiring.manager -> ${job.title}`);
+  console.log(`\n  All seeded accounts use password: ${SEED_PASSWORD}`);
 }
 
 main()

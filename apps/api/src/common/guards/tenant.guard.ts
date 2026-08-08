@@ -1,6 +1,4 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { ROLES_KEY } from '../decorators/roles.decorator';
 import type { RequestContext } from '../types/authenticated-request';
 
 /**
@@ -11,27 +9,23 @@ import type { RequestContext } from '../types/authenticated-request';
  * the PRD names for R-09: a service that forgets to scope a query is the
  * expected failure mode, so the boundary is enforced at framework level.
  *
- * This guard asserts that any authenticated, role-restricted request carries
- * a companyId. Row-level scoping using it belongs to the repositories, and
+ * This guard asserts that every AUTHENTICATED request carries a companyId.
+ * It keys off the presence of a principal rather than @Roles() so that
+ * authenticated-but-unrestricted routes (GET /v1/auth/me) are covered too.
+ * Public routes have no principal and nothing to scope.
+ *
+ * Row-level scoping using companyId belongs to the repositories, and
  * candidate-level ownership (CandidateOwnershipGuard) is M2.5.
  */
 @Injectable()
 export class TenantGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
-
   canActivate(context: ExecutionContext): boolean {
-    const required = this.reflector.getAllAndOverride<string[] | undefined>(ROLES_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-
-    // Public routes have no tenant context to enforce.
-    if (!required || required.length === 0) return true;
-
     const request = context.switchToHttp().getRequest<RequestContext>();
     const user = request.user;
 
-    if (!user) throw new ForbiddenException('Insufficient permissions');
+    // No principal — a public route. JwtAuthGuard has already enforced
+    // authentication anywhere it was required.
+    if (!user) return true;
 
     if (!user.companyId) {
       // An authenticated principal with no tenant cannot be scoped, so no

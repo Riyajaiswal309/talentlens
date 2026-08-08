@@ -4,6 +4,7 @@ export * from './prisma/prisma.service';
 export * from './prisma/prisma.module';
 export * from './audit/audit.service';
 export * from './decorators/roles.decorator';
+export * from './decorators/public.decorator';
 export * from './decorators/audit.decorator';
 export * from './decorators/current-user.decorator';
 export * from './interceptors/correlation-id.interceptor';

@@ -2,14 +2,15 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from './common/common.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
+import { AuthModule } from './modules/auth/auth.module';
 import { HealthController } from './health/health.controller';
 
 /**
  * Root module.
  *
- * M2.3 adds the cross-cutting layer (CommonModule). Feature modules — Auth,
- * Jobs, Applications, Pipeline, Scorecards, Admin, Audit, Notifications, Ai —
- * arrive from M2.4 onward in the Handoff Part 3 order. None exist yet.
+ * M2.3 added the cross-cutting layer; M2.4 adds AuthModule. Remaining feature
+ * modules — Jobs, Applications, Pipeline, Scorecards, Admin, Audit,
+ * Notifications, Ai — arrive from M2.6 in the Handoff Part 3 order.
  */
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { HealthController } from './health/health.controller';
       envFilePath: ['../../.env'],
     }),
     CommonModule,
+    AuthModule,
   ],
   controllers: [HealthController],
 })

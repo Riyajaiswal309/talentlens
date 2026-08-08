@@ -1,5 +1,4 @@
 import { ForbiddenException } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
 import { TenantGuard } from './tenant.guard';
 import type { AuthenticatedUser, RequestContext } from '../types/authenticated-request';
@@ -14,40 +13,42 @@ function makeContext(user?: Partial<AuthenticatedUser>) {
   } as any;
 }
 
+/**
+ * Reworked in M2.4: the guard now keys off the presence of an authenticated
+ * principal rather than @Roles(), so authenticated-but-unrestricted routes
+ * (GET /v1/auth/me) are tenant-checked too. JwtAuthGuard is what enforces
+ * that authentication happened at all.
+ */
 describe('TenantGuard (BR-06, risk R-09)', () => {
-  let reflector: Reflector;
-  let guard: TenantGuard;
+  const guard = new TenantGuard();
 
-  beforeEach(() => {
-    reflector = new Reflector();
-    guard = new TenantGuard(reflector);
-  });
-
-  function requireRoles(roles: string[] | undefined) {
-    jest.spyOn(reflector, 'getAllAndOverride').mockReturnValue(roles);
-  }
-
-  it('allows public routes — nothing to scope', () => {
-    requireRoles(undefined);
-    expect(guard.canActivate(makeContext())).toBe(true);
+  it('allows public routes — no principal, nothing to scope', () => {
+    expect(guard.canActivate(makeContext(undefined))).toBe(true);
   });
 
   it('allows an authenticated user carrying a tenant', () => {
-    requireRoles([UserRole.RECRUITER]);
     expect(
       guard.canActivate(makeContext({ role: UserRole.RECRUITER, companyId: 'company-1' })),
     ).toBe(true);
   });
 
-  it('refuses a principal with no tenant rather than guessing a scope', () => {
-    requireRoles([UserRole.RECRUITER]);
+  it('refuses a principal with an empty tenant rather than guessing a scope', () => {
     expect(() =>
       guard.canActivate(makeContext({ role: UserRole.RECRUITER, companyId: '' })),
     ).toThrow(ForbiddenException);
   });
 
-  it('denies a protected route with no principal', () => {
-    requireRoles([UserRole.RECRUITER]);
-    expect(() => guard.canActivate(makeContext(undefined))).toThrow(ForbiddenException);
+  it('refuses a principal with no tenant field at all', () => {
+    expect(() => guard.canActivate(makeContext({ role: UserRole.ADMIN }))).toThrow(
+      ForbiddenException,
+    );
+  });
+
+  it('applies to every role, including ADMIN — no tenant, no access', () => {
+    for (const role of Object.values(UserRole)) {
+      expect(() => guard.canActivate(makeContext({ role, companyId: '' }))).toThrow(
+        ForbiddenException,
+      );
+    }
   });
 });
