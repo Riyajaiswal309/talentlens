@@ -1,27 +1,46 @@
 import { Module } from '@nestjs/common';
 import { AiScoringPort } from './ai-scoring.port';
+import { AiServiceClient } from './ai-service.client';
+import { ParseReviewController, ParsedProfilesController } from './parse-review.controller';
+import { ParseReviewService } from './parse-review.service';
+import { PersistedAiProvider } from './persisted-ai.provider';
+import { RankingWeightsController } from './ranking-weights.controller';
+import { RankingWeightsService } from './ranking-weights.service';
+import { ResumeParseWorker } from './resume-parse.worker';
 import { ScoreOverrideController } from './score-override.controller';
 import { ScoreOverrideService } from './score-override.service';
-import { NullAiProvider } from './null-ai.provider';
 
 /**
- * PRD §15.3 `AiModule` — Handoff module table row 10: "Interface + null
- * provider only".
+ * PRD §15.3 `AiModule` — the whole AI surface of the core API.
  *
- * The port is bound to its implementation in ONE place. Phase 3 replaces
- * NullAiProvider with an HTTP client for the FastAPI service by editing this
- * line and nothing else; no consumer names the concrete class.
+ * The port is bound to its implementation in ONE place. Phase 2 bound it to
+ * NullAiProvider; Phase 3 binds it to PersistedAiProvider, and no consumer
+ * changed — which is what the seam was for.
  *
- * The module exports only the port, never the implementation, so a consumer
- * cannot accidentally depend on null-provider behaviour.
+ * NullAiProvider is retained, unbound, as the documented fallback for a
+ * deployment with no AI service.
  *
- * ScoreOverrideController (FR4.3) lives here too: the resource it acts on is
- * an AI score, so the whole AI surface stays in one directory. It is not
- * exported — nothing outside this module drives an override.
+ * WHAT IS AND IS NOT HERE: this module integrates a model; it does not
+ * contain one. Extraction, ranking and explanation live behind
+ * AiServiceClient in the Python service (§15.1 principle 1). That service is
+ * a deterministic reference implementation — no model has been trained, and
+ * nothing it returns is validated under §19.6.
  */
 @Module({
-  controllers: [ScoreOverrideController],
-  providers: [{ provide: AiScoringPort, useClass: NullAiProvider }, ScoreOverrideService],
+  controllers: [
+    ScoreOverrideController,
+    RankingWeightsController,
+    ParseReviewController,
+    ParsedProfilesController,
+  ],
+  providers: [
+    { provide: AiScoringPort, useClass: PersistedAiProvider },
+    AiServiceClient,
+    ScoreOverrideService,
+    RankingWeightsService,
+    ParseReviewService,
+    ResumeParseWorker,
+  ],
   exports: [AiScoringPort],
 })
 export class AiModule {}

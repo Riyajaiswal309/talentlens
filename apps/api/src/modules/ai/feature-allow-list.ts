@@ -12,25 +12,19 @@ import { BadRequestException } from '@nestjs/common';
  * is a closed set: an unrecognised key is rejected rather than screened
  * against a deny-list, which would let tomorrow's proxy through.
  *
- * ON THE IDENTIFIERS: PRD §23.3's sample payload prints four of them
- * verbatim — `semantic_similarity`, `skill_overlap`, `years_experience_delta`
- * and `recency_relevant_exp`. The remaining two rows of Table 19.1
- * ("Education-level match", "Certification match count") appear in no
- * document as identifiers; the two below follow the same convention and are
- * marked PROVISIONAL. Phase 3 produces the real feature vector and should
- * confirm them. Getting these two names wrong is safe in the direction that
- * matters — a mismatch rejects a legitimate feature rather than admitting a
- * protected one.
+ * ON THE IDENTIFIERS: all six are printed verbatim in the Handoff Gap 2
+ * `PUT /v1/jobs/:id/ranking-weights` payload, which is the same six-key
+ * allow-list seen from the weighting side. M2.9 guessed two of them
+ * (`education_level_match`, `certification_match_count`) and marked them
+ * provisional; both were wrong, and both are corrected here.
  */
 export const ALLOWED_FEATURE_KEYS = [
-  // Verbatim from PRD §23.3.
   'semantic_similarity',
   'skill_overlap',
   'years_experience_delta',
+  'education_match',
   'recency_relevant_exp',
-  // PROVISIONAL — Table 19.1 rows with no printed identifier.
-  'education_level_match',
-  'certification_match_count',
+  'certification_match',
 ] as const;
 
 export type AllowedFeatureKey = (typeof ALLOWED_FEATURE_KEYS)[number];

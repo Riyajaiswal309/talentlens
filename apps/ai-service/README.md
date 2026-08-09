@@ -1,33 +1,51 @@
 # TalentLens AI Service
 
-**Status: Phase 2 scaffold. Not implemented.**
+**Status: Phase 3 integration build — deterministic reference implementation.**
 
-Per PRD §29, AI screening is **Phase 3**. This directory reserves the service
-boundary so Phase 3 can be added without changing any caller.
+## What this is
 
-In Phase 2 the Core API uses an in-process `NullAiProvider` that always returns
-`NotScored`. This service is never called.
+The three internal endpoints PRD §23.2 reserves, so the core API's
+parse-and-score pipeline can run end to end:
 
-## Runtime
+| Endpoint                    | Purpose                                                  |
+| --------------------------- | -------------------------------------------------------- |
+| `POST /internal/ai/parse`   | resume text → structured profile + per-field confidence  |
+| `POST /internal/ai/rank`    | application → composite score, feature vector, rationale |
+| `POST /internal/ai/explain` | score → rationale in the §22.2 shape                     |
 
-PRD §16 specifies **Python 3.11**. Check yours:
+## What this is NOT
 
-```bash
-python3 --version
-```
+**There is no trained model here.** PRD §19.2 requires consent-gated
+historical application data, recruiter accept/reject/hire labels, a licensed
+resume corpus, a human-verified golden NER dataset, and an access-restricted
+fairness dataset. None of those exist for this project, so nothing has been
+trained and nothing can be evaluated against §19.6's promotion gates.
 
-## Run (optional in Phase 2)
+Everything is served by `app/reference_model.py`, which is:
+
+- **not a trained ML model**
+- **not production-validated**
+- **not promotable under §19.6** — the fairness gate has no override path,
+  and there is no fairness dataset to evaluate against
+- **not evidence** of parsing, ranking or fairness performance
+
+Its outputs are deterministic functions of the input, chosen so integration
+tests can assert exact values. They are not predictions.
+
+## Still to build (Phase 3 proper, blocked on data)
+
+spaCy NER · pdfplumber / python-docx extraction · Tesseract OCR fallback ·
+sentence-transformers embeddings · LightGBM re-ranker · SHAP attribution ·
+MLflow registry · fairness auditing (§21.4)
+
+## Run
 
 ```bash
 cd apps/ai-service
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --port 8000
 curl http://localhost:8000/health
 ```
 
-## Not in this directory yet
-
-No models, no training code, no datasets. Phase 3 adds `ml/training/`,
-`ml/evaluation/`, and `ml/registry/` per PRD §16.1.
+The core API's worker calls this service when `RESUME_WORKER_ENABLED=true`.

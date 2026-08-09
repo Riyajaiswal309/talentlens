@@ -264,23 +264,27 @@ describe('AI score override and guarantees (FR4.3, BR-02, BR-07)', () => {
     });
 
     /**
-     * Even with a real match_scores row present, Phase 2 renders null: the
-     * value comes from the null provider, not from the table. This is the
-     * seam actually being load-bearing rather than decorative.
+     * Phase 3 renders the persisted score. In Phase 2 this asserted the
+     * opposite — the null provider withheld it — and the flip is the seam
+     * doing its job: one binding changed, no consumer did.
      */
-    it('renders null even when a match_scores row exists — the provider decides', async () => {
+    it('renders the persisted score once one exists', async () => {
       const id = await newApplication('render3');
-      await giveScore(id);
+      await giveScore(id, 0.8734);
 
       const response = await request(app.getHttpServer())
         .get(`/applications/${id}`)
         .set(auth(await tokenFor(recruiterA)))
         .expect(200);
 
-      expect(response.body.score).toBeNull();
+      expect(response.body.score).not.toBeNull();
+      expect(response.body.score.composite).toBeCloseTo(0.8734, 4);
+      // BR-02 — a score never reaches the wire without its explanation.
+      expect(response.body.score.rationale.summary).toBeTruthy();
     });
 
-    it('a candidate reading their own application sees no assessment data', async () => {
+    /** PRD §24.2 Table 24.1 — "View AI rankings + rationale: Candidate —". */
+    it('§24.2: a candidate never receives the score, even once one exists', async () => {
       const id = await newApplication('render4');
       await giveScore(id);
       const candidate = await prisma.application.findUniqueOrThrow({
@@ -625,15 +629,23 @@ describe('AI score override and guarantees (FR4.3, BR-02, BR-07)', () => {
       expect(ALLOWED_FEATURE_KEYS).toHaveLength(6);
     });
 
-    it('accepts the four identifiers PRD §23.3 prints verbatim', () => {
+    it('matches the six identifiers Handoff Gap 2 prints verbatim', () => {
       for (const key of [
         'semantic_similarity',
         'skill_overlap',
         'years_experience_delta',
+        'education_match',
         'recency_relevant_exp',
+        'certification_match',
       ]) {
         expect(isAllowedFeature(key)).toBe(true);
       }
+    });
+
+    /** The two M2.9 guessed wrong. Pinned so they cannot creep back. */
+    it('rejects the provisional names M2.9 used by mistake', () => {
+      expect(isAllowedFeature('education_level_match')).toBe(false);
+      expect(isAllowedFeature('certification_match_count')).toBe(false);
     });
 
     it('accepts a feature vector built only from allowed keys', () => {

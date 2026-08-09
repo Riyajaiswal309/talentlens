@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -75,6 +80,25 @@ export class StorageService {
         ...(this.config.get<string>('S3_ENDPOINT') ? {} : { ServerSideEncryption: 'aws:kms' }),
       }),
     );
+  }
+
+  /**
+   * Read a stored object back as text (Phase 3, PRD §20 stage 2).
+   *
+   * The bytes go to the AI service, which owns extraction — the core API
+   * never imports pdfplumber or any other model dependency (§15.1
+   * principle 1). Returned as a string because that is what the parse
+   * endpoint accepts; binary formats are the AI service's problem.
+   */
+  async readText(key: string): Promise<string> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+
+    if (!response.Body) {
+      throw new Error(`Resume object is empty or missing: ${key}`);
+    }
+    return response.Body.transformToString();
   }
 
   /**

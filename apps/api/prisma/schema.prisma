@@ -44,16 +44,13 @@ enum JobStatus {
 
 /**
  * APPROVED RESOLUTION of the audit-actor PRD GAP (8 Aug 2026).
- *
  * PRD §17.3 declared audit_logs.actor_id NOT NULL REFERENCES users(id), yet
  * Handoff §I requires `application.submitted` (FR2.1) to be audited and
  * POST /v1/applications is Public — an unauthenticated candidate with no
  * users row. A required audit record was therefore unwritable.
- *
  * Resolved by discriminating the actor instead of inventing a system user:
- *   USER   — authenticated action; actor_id MUST be present
- *   PUBLIC — unauthenticated action; actor_id MUST be NULL
- *
+ * USER   — authenticated action; actor_id MUST be present
+ * PUBLIC — unauthenticated action; actor_id MUST be NULL
  * The pairing is enforced by a database CHECK constraint, not by convention,
  * so an audit row can never claim a user it does not have.
  */
@@ -92,25 +89,25 @@ model Company {
 }
 
 model Users {
-  id           String   @id @default(uuid()) @db.Uuid
-  companyId    String   @map("company_id") @db.Uuid
+  id           String    @id @default(uuid()) @db.Uuid
+  companyId    String    @map("company_id") @db.Uuid
   email        String
   role         UserRole
   /// PRD §24.1 — Argon2id. Null for SSO-only accounts (OAuth2/OIDC).
-  passwordHash String?  @map("password_hash")
+  passwordHash String?   @map("password_hash")
   lastActiveAt DateTime? @map("last_active_at") @db.Timestamptz(6)
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company         Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdJobs     Job[]           @relation("JobCreatedBy")
-  jobAssignments  JobAssignment[]
-  stageChanges    StageHistory[]
-  scorecards      Scorecard[]
-  auditLogs       AuditLog[]
-  scoreOverrides  MatchScore[]    @relation("ScoreOverriddenBy")
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdJobs      Job[]           @relation("JobCreatedBy")
+  jobAssignments   JobAssignment[]
+  stageChanges     StageHistory[]
+  scorecards       Scorecard[]
+  auditLogs        AuditLog[]
+  scoreOverrides   MatchScore[]    @relation("ScoreOverriddenBy")
   /// A login account may correspond to at most one candidate profile.
-  candidateProfile Candidate?     @relation("CandidateAccount")
+  candidateProfile Candidate?      @relation("CandidateAccount")
 
   /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
   @@unique([companyId, email])
@@ -123,9 +120,9 @@ model Users {
 // ---------------------------------------------------------------------------
 
 model Job {
-  id        String    @id @default(uuid()) @db.Uuid
-  companyId String    @map("company_id") @db.Uuid
-  createdBy String    @map("created_by") @db.Uuid
+  id        String @id @default(uuid()) @db.Uuid
+  companyId String @map("company_id") @db.Uuid
+  createdBy String @map("created_by") @db.Uuid
 
   /// FR1.2 — structured fields.
   title           String
@@ -141,7 +138,18 @@ model Job {
   /// Phase 2, FR4.5 (unscored, reverse-chronological) is the correct default.
   aiScoringEnabled Boolean @default(false) @map("ai_scoring_enabled")
 
-  status JobStatus @default(DRAFT)
+  /**
+   * FR4.2 / Handoff Gap 2 — recruiter-defined ranking weights.
+   * A jsonb column rather than a table: one optional row per job with no
+   * independent lifecycle. NULL means "defaults apply", which is what the
+   * `isDefault` flag in the Gap 2 response reports. Keys are constrained to
+   * the six PRD Table 19.1 features at the API boundary (BR-07) — the
+   * enforcement point the Handoff names.
+   */
+  rankingWeights          Json?     @map("ranking_weights")
+  rankingWeightsUpdatedAt DateTime? @map("ranking_weights_updated_at") @db.Timestamptz(6)
+
+  status      JobStatus @default(DRAFT)
   /// PRD §7 — North Star metric measures from jobs.published_at.
   publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
   closedAt    DateTime? @map("closed_at") @db.Timestamptz(6)
@@ -149,10 +157,10 @@ model Job {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company     Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  creator     Users           @relation("JobCreatedBy", fields: [createdBy], references: [id])
-  assignments JobAssignment[]
-  stages      PipelineStage[]
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  creator      Users           @relation("JobCreatedBy", fields: [createdBy], references: [id])
+  assignments  JobAssignment[]
+  stages       PipelineStage[]
   applications Application[]
 
   @@index([companyId, status])
@@ -190,10 +198,10 @@ model JobAssignment {
 /// (Applied, Screening, Interview, Offer, Hired, Rejected) and may then be
 /// edited. "Shortlisted" is a per-job addition, never a global stage.
 model PipelineStage {
-  id       String @id @default(uuid()) @db.Uuid
-  jobId    String @map("job_id") @db.Uuid
-  name     String
-  position Int
+  id         String  @id @default(uuid()) @db.Uuid
+  jobId      String  @map("job_id") @db.Uuid
+  name       String
+  position   Int
   /// BR-01 — terminal stages require explicit human confirmation in the UI.
   /// No AI-originated path may write them.
   isTerminal Boolean @default(false) @map("is_terminal")
@@ -220,18 +228,14 @@ model Candidate {
 
   /**
    * APPROVED RESOLUTION of the candidate-identity PRD GAP (8 Aug 2026).
-   *
    * PRD §17 defined no link between `candidates` (the applicant profile) and
    * `users` (the login account), yet BR-06 requires an authenticated
    * candidate to reach only their own data. This column is that link.
-   *
    * NULLABLE BY DESIGN: a candidate profile may exist with no login account —
    * for example one created by a recruiter, or an application submitted
    * through the public form before any account exists. Code must never assume
    * a candidate has a user.
-   *
    * Used ONLY for BR-06 ownership enforcement.
-   *
    * UNIQUE so one login account cannot claim two candidate profiles. In
    * PostgreSQL a unique index ignores NULLs, so any number of candidates may
    * remain unlinked — rule 1 of the approved resolution is preserved.
@@ -303,13 +307,28 @@ model ParsedProfile {
   id       String @id @default(uuid()) @db.Uuid
   resumeId String @unique @map("resume_id") @db.Uuid
 
-  skills          Json  @default("[]")
-  workHistory     Json  @default("[]") @map("work_history")
-  education       Json  @default("[]")
-  certifications  Json  @default("[]")
+  skills         Json @default("[]")
+  workHistory    Json @default("[]") @map("work_history")
+  education      Json @default("[]")
+  certifications Json @default("[]")
+
+  /**
+   * FR3.2 / Handoff Gap 3 — per-field confidence, keyed by field path
+   * (e.g. "work_history[0].employer"). §20 stage 5 flags anything below
+   * 0.75 for review rather than accepting it silently, and the review queue
+   * is built by reading this map.
+   */
+  fieldConfidence Json @default("{}") @map("field_confidence")
+
+  /**
+   * Who confirmed which field, and when. Gap 3 rule 4: confirming sets the
+   * field's confidence to 1.0 and records the actor, so a corrected value is
+   * attributable rather than anonymously "fixed".
+   */
+  fieldConfirmations Json   @default("{}") @map("field_confirmations")
   /// FR3.2 — per-field confidence; values below threshold are flagged for
   /// review rather than silently accepted.
-  confidenceScore Float? @map("confidence_score")
+  confidenceScore    Float? @map("confidence_score")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -388,13 +407,13 @@ model MatchScore {
 /// FR5.4 — every stage transition recorded with actor and timestamp.
 /// Append-only by convention here; the audit trail proper is audit_logs.
 model StageHistory {
-  id            String  @id @default(uuid()) @db.Uuid
-  applicationId String  @map("application_id") @db.Uuid
-  fromStage     String? @map("from_stage")
-  toStage       String  @map("to_stage")
+  id            String   @id @default(uuid()) @db.Uuid
+  applicationId String   @map("application_id") @db.Uuid
+  fromStage     String?  @map("from_stage")
+  toStage       String   @map("to_stage")
   /// BR-01 — NOT NULL. Every transition has a human actor; no system-actor
   /// path exists to write this table.
-  changedBy     String  @map("changed_by") @db.Uuid
+  changedBy     String   @map("changed_by") @db.Uuid
   changedAt     DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -409,9 +428,9 @@ model StageHistory {
 
 /// FR5.3 — structured feedback visible to the full hiring team.
 model Scorecard {
-  id            String @id @default(uuid()) @db.Uuid
-  applicationId String @map("application_id") @db.Uuid
-  authorId      String @map("author_id") @db.Uuid
+  id            String  @id @default(uuid()) @db.Uuid
+  applicationId String  @map("application_id") @db.Uuid
+  authorId      String  @map("author_id") @db.Uuid
   rating        Int
   feedback      String?
 
@@ -452,25 +471,23 @@ model AuditLog {
 
   /**
    * Tenant the event belongs to (M2.10, approved 9 Aug 2026).
-   *
    * Required for every NEW record — AuditService refuses to write without
    * one — but nullable, because rows written before this column existed
    * cannot all be resolved. The backfill assigns a tenant only where the
    * relationship is deterministic; anything else stays NULL and is treated
    * as historical/unscoped rather than being guessed into the wrong tenant.
-   *
    * Restrict, like actor_id: PRD §18 keeps the audit log out of cascade
    * deletes, so a company with audit history cannot be removed silently.
    */
   companyId String? @map("company_id") @db.Uuid
 
   action        String
-  resourceType  String  @map("resource_type")
-  resourceId    String  @map("resource_id") @db.Uuid
-  beforeState   Json?   @map("before_state")
-  afterState    Json?   @map("after_state")
+  resourceType  String @map("resource_type")
+  resourceId    String @map("resource_id") @db.Uuid
+  beforeState   Json?  @map("before_state")
+  afterState    Json?  @map("after_state")
   /// NFR11 — traceable end to end, including across asynchronous processing.
-  correlationId String  @map("correlation_id")
+  correlationId String @map("correlation_id")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 

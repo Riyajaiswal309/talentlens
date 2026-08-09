@@ -9,6 +9,7 @@ import { AiModule } from './ai.module';
 import { AI_AUDIT_ACTIONS } from './ai-audit-actions';
 import { AiScoringPort, type ScoreResult } from './ai-scoring.port';
 import { NullAiProvider } from './null-ai.provider';
+import { PersistedAiProvider } from './persisted-ai.provider';
 import { AuditService } from '../../common/audit/audit.service';
 import { CommonModule } from '../../common/common.module';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -70,7 +71,7 @@ describe('AI seam (Handoff §G)', () => {
   // The seam
   // =========================================================================
   describe('AiModule wiring', () => {
-    it('resolves AiScoringPort to the null provider', async () => {
+    it('resolves AiScoringPort to the Phase 3 provider', async () => {
       const moduleRef = await Test.createTestingModule({
         // CommonModule is @Global in the running app; an isolated test
         // module must import it for AiModule's own providers.
@@ -83,7 +84,13 @@ describe('AI seam (Handoff §G)', () => {
 
       const port = moduleRef.get(AiScoringPort);
 
-      expect(port).toBeInstanceOf(NullAiProvider);
+      /*
+       * Phase 2 bound NullAiProvider; Phase 3 binds PersistedAiProvider. The
+       * point of the seam is that this ONE line changed and no consumer did.
+       */
+      expect(port).toBeInstanceOf(PersistedAiProvider);
+      // An application with no score still answers NotScored, so the FR4.5
+      // path stays live rather than becoming dead code.
       await expect(port.getScore(randomUUID())).resolves.toEqual({ scored: false });
       await moduleRef.close();
     });
@@ -93,7 +100,7 @@ describe('AI seam (Handoff §G)', () => {
      * a consumer could inject it directly and Phase 3's swap would stop being
      * a one-line change.
      */
-    it('does not export the concrete provider', async () => {
+    it('does not export a concrete provider', async () => {
       const moduleRef = await Test.createTestingModule({
         // CommonModule is @Global in the running app; an isolated test
         // module must import it for AiModule's own providers.
@@ -105,7 +112,7 @@ describe('AI seam (Handoff §G)', () => {
       }).compile();
 
       // Resolvable inside the module's own injector, but not exported.
-      expect(() => moduleRef.get(NullAiProvider, { strict: true })).toThrow();
+      expect(() => moduleRef.get(PersistedAiProvider, { strict: true })).toThrow();
       await moduleRef.close();
     });
   });
@@ -204,17 +211,14 @@ describe('AI seam (Handoff §G)', () => {
     });
 
     /**
-     * Decision 6: the hook is defined but NOT invoked in Phase 2. Asserted
-     * against the source tree, because "nobody calls it" is exactly the kind
-     * of property that decays silently.
+     * Phase 2 defined this hook and left it uncalled. Phase 3 gives it its
+     * one caller: the worker, after a score is persisted (FR4.4).
      *
-     * Two files NAME the action legitimately without emitting it: the
-     * constant's own definition, and the audit browser's filter vocabulary,
-     * which has to list every action a query may filter on. Emission means
-     * passing it to an audit write — `action:` or an @Audit() decorator —
-     * which is what the patterns below look for.
+     * Still asserted against the source tree, because "exactly one place
+     * writes this" is the property worth keeping — a second emitter would
+     * mean a score recorded twice.
      */
-    it('no production code emits score.generated', () => {
+    it('exactly one production file emits score.generated', () => {
       const offenders: string[] = [];
 
       function walk(dir: string): void {
@@ -240,7 +244,7 @@ describe('AI seam (Handoff §G)', () => {
 
       walk(join(__dirname, '..', '..'));
 
-      expect(offenders).toEqual([]);
+      expect(offenders.map((path) => path.split('/').pop())).toEqual(['resume-parse.worker.ts']);
     });
   });
 });

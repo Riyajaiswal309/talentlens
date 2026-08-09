@@ -78,10 +78,13 @@ interface ApplicationDetailResponse {
     uploadedAt: string;
   } | null;
   /**
-   * RC-06 renders a score panel. Resolved through AiScoringPort, so it is
-   * null in Phase 2 (NotScored) and populated in Phase 3 without a change
-   * here. A CANDIDATE reading their own application sees the same null: no
-   * assessment data is exposed to the person being assessed.
+   * RC-06 renders a score panel. Resolved through AiScoringPort.
+   *
+   * ALWAYS null for a CANDIDATE caller. PRD §24.2 Table 24.1: "View AI
+   * rankings + rationale — Recruiter ✓, Hiring Manager ✓ (assigned),
+   * Candidate —, Admin ✓". The candidate is the subject of the assessment,
+   * not an audience for it; §24.5 makes a candidate-facing explanation a
+   * separate request process, not this field.
    */
   score: WireScore | null;
 }
@@ -350,6 +353,15 @@ export class ApplicationsController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ApplicationDetailResponse> {
     const application = await this.applications.findOne(user, id);
-    return toDetailResponse(application, toWireScore(await this.ai.getScore(application.id)));
+
+    /*
+     * §24.2 grants no ranking visibility to a Candidate, so the score is not
+     * even fetched for one — withheld at the source rather than filtered out
+     * of a payload that briefly held it.
+     */
+    const score =
+      user.role === UserRole.CANDIDATE ? null : toWireScore(await this.ai.getScore(application.id));
+
+    return toDetailResponse(application, score);
   }
 }
