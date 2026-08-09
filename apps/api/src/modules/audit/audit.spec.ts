@@ -4,8 +4,11 @@ import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { AuditActorType, JobStatus, Prisma, UserRole } from '@prisma/client';
 import request from 'supertest';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AuditModule } from './audit.module';
+import { isKnownAction } from './audit-actions';
 import { EXPORT_COLUMNS } from './audit-export.service';
 import { MAX_RANGE_DAYS } from './dto/query-audit.dto';
 import { AdminModule } from '../admin/admin.module';
@@ -314,6 +317,40 @@ describe('AuditModule (FR8.3, NFR8)', () => {
           (r: { action: string }) => r.action === 'application.stage_changed',
         ),
       ).toBe(true);
+    });
+
+    /**
+     * The vocabulary must cover everything the system writes.
+     *
+     * An emitted action missing from the list is unfilterable: the browser
+     * would 400 on a perfectly real event, which is the same failure Gap 4
+     * rule 2 exists to prevent, pointing the other way. Phase 3 added two
+     * actions and this test is what caught them.
+     */
+    it('every action production code emits is filterable', () => {
+      const emitted = new Set<string>();
+
+      function walk(dir: string): void {
+        for (const entry of readdirSync(dir)) {
+          const path = join(dir, entry);
+          if (statSync(path).isDirectory()) {
+            walk(path);
+            continue;
+          }
+          if (!entry.endsWith('.ts') || entry.endsWith('.spec.ts')) continue;
+
+          const source = readFileSync(path, 'utf8');
+          for (const match of source.matchAll(/action: '([a-z_]+\.[a-z_]+)'/g)) {
+            if (match[1]) emitted.add(match[1]);
+          }
+        }
+      }
+
+      walk(join(__dirname, '..', '..'));
+
+      expect(emitted.size).toBeGreaterThan(0);
+      const unfilterable = [...emitted].filter((action) => !isKnownAction(action)).sort();
+      expect(unfilterable).toEqual([]);
     });
 
     it('rejects an unknown actionType rather than matching nothing', async () => {

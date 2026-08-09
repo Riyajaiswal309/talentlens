@@ -1,8 +1,12 @@
-# Phase 2 scaffold ONLY — health endpoint, no models.
+# Phase 3 integration build — reference stub, NO trained model.
 # PRD §16 Table 16.1 target runtime: Python 3.11.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 
-# NOT installed in Phase 2. Added in Phase 3 (PRD §19-§22):
+# Still NOT installed, and still blocked (PRD §19-§22):
 #   spacy, pdfplumber, python-docx, pytesseract,
 #   sentence-transformers, lightgbm, shap, mlflow
+#
+# Each needs trained artefacts or a corpus that PRD §19.2 requires and this
+# project does not have. Adding the libraries without the data would not move
+# the work forward.

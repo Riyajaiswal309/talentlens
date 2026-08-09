@@ -7,6 +7,15 @@ import { AI_AUDIT_ACTIONS } from '../ai/ai-audit-actions';
  * unknown values return 400 rather than silently matching nothing." A filter
  * that quietly returns an empty page is worse than an error — an auditor
  * would read "no such events" where the truth is "you misspelled it".
+ *
+ * The list must therefore be a SUPERSET of everything the system emits: an
+ * action that is written but not listed here would be unfilterable, and the
+ * 400 would be lying in the other direction. A test walks the source tree to
+ * keep the two in step.
+ *
+ * It may legitimately be broader. Some entries name events whose feature is
+ * not built yet (auth.login_*, candidate.erased, job.closed); listing them
+ * costs nothing and means the vocabulary does not shift when they arrive.
  */
 export const AUDIT_ACTIONS = [
   'auth.login_succeeded',
@@ -23,6 +32,9 @@ export const AUDIT_ACTIONS = [
   'application.rejected',
   AI_AUDIT_ACTIONS.SCORE_OVERRIDDEN,
   AI_AUDIT_ACTIONS.SCORE_GENERATED,
+  // Phase 3 integration.
+  'job.ranking_weights_changed',
+  'parsed_profile.corrected',
   'admin.ai_scoring_changed',
   'admin.role_changed',
   'admin.user_invited',

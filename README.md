@@ -18,6 +18,7 @@ not the code.
 | `docs/master-prd-v3.pdf`            | Master PRD v3.0 — requirements, architecture, business rules |
 | `docs/phase1-requirements-ux.pdf`   | Phase 1 — traceability, screens, flows, design system        |
 | `docs/phase1-to-phase2-handoff.pdf` | Handoff v1.1 — API contracts, entities, Definition of Done   |
+| `docs/PRD-AMENDMENTS.md`            | What the build does that the PRD/Handoff do not yet say      |
 
 ---
 
@@ -28,7 +29,7 @@ not the code.
 | Node.js | **20+** (PRD §16 specifies 20) | Core API and web build        |
 | pnpm    | 9.15.0                         | Workspace manager (PRD §16.1) |
 | Docker  | Any recent                     | Postgres 15 + Redis 7 locally |
-| Python  | **3.11** (PRD §16)             | AI service — Phase 3 only     |
+| Python  | **3.11** (PRD §16)             | AI service — reference stub   |
 
 Install pnpm without touching system directories:
 
@@ -73,7 +74,7 @@ talentlens/
 ├── apps/
 │   ├── web/           React 18 + Vite + TypeScript + Tailwind
 │   ├── api/           NestJS core API
-│   └── ai-service/    FastAPI scaffold — Phase 3, not implemented
+│   └── ai-service/    FastAPI — Phase 3 integration; reference stub, NOT a model
 ├── packages/
 │   └── shared-types/  Types shared between web and api
 ├── docs/              PRD and phase documents
@@ -98,14 +99,29 @@ talentlens/
 
 ## Phase status
 
-| Phase  | Scope                                                         | Status               |
-| ------ | ------------------------------------------------------------- | -------------------- |
-| P1     | Requirements & UX design                                      | ✅ Complete          |
-| **P2** | **Core platform — jobs, applications, pipeline, RBAC, audit** | **🔨 M2.1 of M2.10** |
-| P3     | AI screening — parsing, ranking, explainability               | ⏳ Not started       |
-| P4     | QA, accessibility, fairness testing                           | ⏳                   |
-| P5     | Beta                                                          | ⏳                   |
-| P6     | General availability                                          | ⏳                   |
+| Phase  | Scope                                                     | Status                  |
+| ------ | --------------------------------------------------------- | ----------------------- |
+| P1     | Requirements & UX design                                  | ✅ Complete             |
+| P2     | Core platform — jobs, applications, pipeline, RBAC, audit | ✅ Complete (M2.10)     |
+| **P3** | **AI screening — parsing, ranking, explainability**       | **◑ Integration only**  |
+| P4     | QA, accessibility, fairness testing                       | ⛔ Blocked on P3 models |
+| P5     | Beta                                                      | ⏳                      |
+| P6     | General availability                                      | ⏳                      |
+
+### On P3: what "integration only" means
+
+The parse-and-score pipeline is built and tested end to end — queue, worker,
+`parsed_profiles`, atomic `match_scores`, ranking weights, parse review. **No
+model is trained.** PRD §19.2 requires consent-gated historical application
+data, recruiter accept/reject/hire labels, a licensed resume corpus, a
+human-verified golden NER dataset and an access-restricted fairness dataset;
+none exists here, so §19.6's promotion gates cannot be evaluated and its
+fairness gate has no override path.
+
+`apps/ai-service` therefore serves a deterministic reference stub,
+`reference-stub@not-trained-v0` — not a trained model, not validated, not
+promotable, and not evidence of parsing, ranking or fairness performance.
+P4's fairness testing is blocked on that, not on this repository.
 
 ### Rules this codebase enforces
 
