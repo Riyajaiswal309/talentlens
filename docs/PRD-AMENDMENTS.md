@@ -18,8 +18,9 @@ again.
 
 ## A. Database — PRD §17
 
-PRD §17.2 defines 13 tables; the build has 14, plus seven column or constraint
-additions.
+PRD §17.2 defines 14 tables. The build has 15: thirteen of the PRD's fourteen —
+`interviews` belongs to deferred FR6 (section F) — plus `job_assignments` (A1)
+and `comments` (A8), and seven column or constraint additions.
 
 | #   | Change                                                                                                                                                                                                                                                                    | Authorised by                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
@@ -37,27 +38,40 @@ additions.
 
 ## B. Endpoints — PRD §23.2
 
-Handoff decision **D4** already authorises amending §23.2 with the unlisted
-endpoints and naming ten. The built total is **eighteen**.
+**38 routes are registered.** Counted from the route decorators, every one falls
+into exactly one of four groups, and only the last needs new text written:
 
-Named in D4 and built:
+| Group                                                              | Count  | Status                                      |
+| ------------------------------------------------------------------ | ------ | ------------------------------------------- |
+| In PRD Table 23.1 and built                                        | 15     | Already documented                          |
+| Marked ⚠️ in Handoff Table B.1 → the **D4** amendment              | 12     | Already authorised                          |
+| In Handoff Table B.2 — specified, deferred to Phase 3, built there | 4      | Already documented                          |
+| Not written down anywhere — the rows below                         | 6      | **Amendment required**                      |
+| `GET /health`                                                      | 1      | PRD §NFR (`/health`); outside the v1 prefix |
+| **Total**                                                          | **38** |                                             |
 
-`GET /v1/auth/me` · `GET /v1/jobs/:id` · `GET /v1/public/jobs` ·
-`GET /v1/public/jobs/:id` · `GET /v1/me/reviews` · `GET /v1/audit-logs` ·
-`GET /v1/audit-logs/:id` · `GET /v1/admin/users` · `POST /v1/admin/users` ·
-`PATCH /v1/admin/users/:id/role` · `DELETE /v1/admin/users/:id/sessions` ·
-`PATCH /v1/applications/bulk/stage` · `GET /v1/jobs/:id/ranking-weights` ·
-`PUT /v1/jobs/:id/ranking-weights` · `GET /v1/jobs/:id/parse-review`
+Table 23.1 lists seventeen rows; the two not built are `POST /v1/interviews`
+and `GET /v1/analytics/funnel`, deferred with FR6/FR7 in section F.
 
-Not named in D4 and requiring their own line:
+One inconsistency belongs to the Handoff rather than to this build: D4's prose
+authorises "the 10 unlisted endpoints" and enumerates ten, but Table B.1 marks
+**twelve** rows ⚠️. `GET /v1/public/jobs/:id` and `PATCH /v1/applications/bulk/stage`
+are flagged as needing the amendment yet omitted from D4's parenthetical. Both
+are built. The amendment should be recorded as covering twelve.
+
+Table B.2's four, all built in the Phase 3 integration: `GET` / `PUT /v1/jobs/:id/ranking-weights`,
+`GET /v1/jobs/:id/parse-review`, `PATCH /v1/parsed-profiles/:id` (B2 below, kept
+as its own row because Table B.2 also floats it as a possible Phase 2 landing).
+
+Not named in any document and requiring their own line:
 
 | #   | Endpoint                                               | Why it exists                                                                                                                                                                                                                                         |
 | --- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B1  | `GET /v1/applications/:id/scorecards`                  | FR5.3 team visibility. Phase 1 states the criterion as "scorecards listed on candidate detail", but Handoff row 13 excludes Hiring Managers from `GET /v1/applications/:id`, so serving them there would withhold it from the role HM-03 shows it to. |
 | B2  | `PATCH /v1/parsed-profiles/:id`                        | Handoff Table B.2 lists it as deferred to Phase 3; built in the Phase 3 integration.                                                                                                                                                                  |
+| B3  | `ALL /v1/audit-logs`, `ALL /v1/audit-logs/*` → **405** | Gap 4 rule 3 requires write verbs to return 405. Two handlers, because a stacked pair of `@All` decorators registers only one.                                                                                                                        |
 | B4  | `POST` / `GET /v1/applications/:id/comments`           | FR5.3's comments half. No endpoint was ever specified; the path mirrors the documented sibling `…/scorecards` exactly.                                                                                                                                |
 | B5  | `DELETE /v1/admin/candidates/:id`                      | BR-05. §17.1, §18 and §24.5 specify the routine and Handoff §I names `candidate.erased`, but no endpoint was written down.                                                                                                                            |
-| B3  | `ALL /v1/audit-logs`, `ALL /v1/audit-logs/*` → **405** | Gap 4 rule 3 requires write verbs to return 405. Two handlers, because a stacked pair of `@All` decorators registers only one.                                                                                                                        |
 
 ## C. Audit vocabulary — Handoff §I
 
@@ -88,10 +102,10 @@ closeout; before that an administrator filtering for a real event received a 400
 
 ## E. Corrections to already-written text
 
-| #   | Correction                                                                                                                                                                                                                                                                                                      |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1  | **Handoff FR-coverage table marks FR5.3 "✅ Full".** Only the scorecards half is delivered; **comments have no table** and are not built. The row should read Partial.                                                                                                                                          |
-| E2  | **BR-07 feature identifiers.** M2.9 guessed `education_level_match` and `certification_match_count` and marked them provisional. Handoff Gap 2 prints all six verbatim: the correct names are `education_match` and `certification_match`. Corrected in code; the wrong names are pinned as rejected by a test. |
+| #   | Correction                                                                                                                                                                                                                                                                                                                     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| E1  | **Handoff FR-coverage table marks FR5.3 "✅ Full".** It was inaccurate when written — only the scorecards half existed, and comments had no table. The remaining-gaps pass built the comments half (A8, B4), so the row is now true; what needs recording is that it became true through an amendment, not that it always was. |
+| E2  | **BR-07 feature identifiers.** M2.9 guessed `education_level_match` and `certification_match_count` and marked them provisional. Handoff Gap 2 prints all six verbatim: the correct names are `education_match` and `certification_match`. Corrected in code; the wrong names are pinned as rejected by a test.                |
 
 ## F. Deferred, with the reason recorded
 
@@ -122,15 +136,16 @@ mistaken for oversights:
 
 ### Closed in the remaining-gaps pass
 
-- **Comments storage (FR5.3)** — table, endpoints and tests added; E1 above is
-  now the only outstanding part, which is correcting the Handoff's text.
+- **Comments storage (FR5.3)** — table, endpoints and tests added. The only
+  outstanding part is E1 above: annotating the Handoff's FR5.3 row so it records
+  that "Full" was reached by amendment.
 - **`NotificationsModule` (FR2.3)** — built at the size the Handoff describes.
 - **BR-05 erasure** — `DELETE /v1/admin/candidates/:id` detaches PII, deletes
   stored resumes and retains the audit skeleton (§18).
 - **Malformed cursor** — `list-jobs`, `list-public-jobs` and
   `list-job-candidates` now validate `cursor` as a UUID and return 400.
 
-## G. Blocked: the model half of Phase 3
+## H. Blocked: the model half of Phase 3
 
 Not amendments, and not schedulable. PRD §19.2 requires consent-gated
 historical application data, recruiter accept/reject/hire labels, a licensed
