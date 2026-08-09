@@ -8,6 +8,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { JobsModule } from './modules/jobs/jobs.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
 import { ScorecardsModule } from './modules/scorecards/scorecards.module';
 import { HealthController } from './health/health.controller';
@@ -28,6 +29,7 @@ import { HealthController } from './health/health.controller';
       envFilePath: ['../../.env'],
     }),
     CommonModule,
+    NotificationsModule,
     AuthModule,
     JobsModule,
     ApplicationsModule,

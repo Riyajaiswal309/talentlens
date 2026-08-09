@@ -21,6 +21,7 @@ import { memoryStorage } from 'multer';
 import { AiScoringPort } from '../ai/ai-scoring.port';
 import { toWireScore, type WireScore } from '../ai/score-view';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Audit } from '../../common/decorators/audit.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -141,6 +142,7 @@ export class ApplicationsController {
     private readonly applications: ApplicationsService,
     private readonly idempotency: IdempotencyService,
     private readonly ai: AiScoringPort,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -236,6 +238,23 @@ export class ApplicationsController {
       currentStage: result.application.currentStage,
       appliedAt: result.application.appliedAt.toISOString(),
     };
+
+    /*
+     * FR2.3 / CA-04 — confirmation. Awaited but non-throwing: FR2.5 makes
+     * intake independent of everything downstream, so a notification failure
+     * cannot cost the candidate their application.
+     */
+    await this.notifications
+      .applicationReceived({
+        email: result.candidate.email,
+        candidateName: result.candidate.fullName,
+        jobTitle: result.job.title,
+        reference: response.reference,
+      })
+      // Belt and braces. NotificationsService already swallows transport
+      // errors, but FR2.5 makes intake independent of EVERYTHING downstream —
+      // a bug in the notifier must not cost a candidate their application.
+      .catch(() => undefined);
 
     /*
      * Recorded only now, AFTER the work succeeded and its audit row is about

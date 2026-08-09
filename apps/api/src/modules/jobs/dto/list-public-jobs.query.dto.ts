@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 /**
  * Query for GET /v1/public/jobs (Handoff §B row 10).
@@ -12,9 +12,14 @@ import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
  * and accepting the filter would invite callers to ask for DRAFT.
  */
 export class ListPublicJobsQueryDto {
-  /** Opaque to clients: the id of the last row from the previous page. */
+  /**
+   * Opaque to clients: the id of the last row from the previous page.
+   *
+   * Validated as a UUID so a malformed value is a 400 rather than a 500 —
+   * left as a bare string it reaches Postgres and fails the uuid cast.
+   */
   @IsOptional()
-  @IsString()
+  @IsUUID('4', { message: 'cursor is not a valid page marker' })
   cursor?: string;
 
   @IsOptional()

@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { ApplicationsModule } from './applications.module';
 import { MAX_RESUME_BYTES } from './resume-file';
 import { CommonModule } from '../../common/common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
 import { CorrelationIdMiddleware } from '../../common/middleware/correlation-id.middleware';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -46,6 +47,7 @@ describe('ApplicationsController (multipart intake)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env'] }),
         CommonModule,
+        NotificationsModule,
         ApplicationsModule,
       ],
       providers: [JobsService],

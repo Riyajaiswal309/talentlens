@@ -15,6 +15,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthenticatedUser, RequestContext } from '../../common/types/authenticated-request';
 import { BulkChangeStageDto } from './dto/bulk-change-stage.dto';
 import { ChangeStageDto } from './dto/change-stage.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { PipelineService, toStageAuditState } from './pipeline.service';
 
 /** Phase 1 RC-09 — the card settles and column counts update from this. */
@@ -34,7 +35,10 @@ interface BulkStageResponse {
 
 @Controller('applications')
 export class PipelineController {
-  constructor(private readonly pipeline: PipelineService) {}
+  constructor(
+    private readonly pipeline: PipelineService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   /**
    * PATCH /v1/applications/bulk/stage — Recruiter, Admin
@@ -156,6 +160,17 @@ export class PipelineController {
       ];
     }
 
+    /*
+     * FR2.3 — status-change notification. Only on a real transition: the
+     * no-op branch above returns before this, so a recruiter dragging a card
+     * onto its own column does not email the candidate.
+     */
+    await this.notifyCandidate(
+      result.application.id,
+      result.application.currentStage,
+      result.toStage.isTerminal,
+    ).catch(() => undefined);
+
     return {
       id: result.application.id,
       currentStage: result.application.currentStage,
@@ -163,5 +178,23 @@ export class PipelineController {
       isTerminal: result.toStage.isTerminal,
       changedAt: result.history.changedAt.toISOString(),
     };
+  }
+
+  /** Resolve the candidate and tell them (FR2.3). Never throws. */
+  private async notifyCandidate(
+    applicationId: string,
+    toStage: string,
+    isTerminal: boolean,
+  ): Promise<void> {
+    const application = await this.pipeline.findForNotification(applicationId);
+    if (!application) return;
+
+    await this.notifications.applicationStatusChanged({
+      email: application.candidate.email,
+      candidateName: application.candidate.fullName,
+      jobTitle: application.job.title,
+      toStage,
+      isTerminal,
+    });
   }
 }

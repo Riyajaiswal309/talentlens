@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { CommentsController } from './comments.controller';
+import { CommentsService } from './comments.service';
 import { ReviewsController } from './reviews.controller';
 import { ScorecardsController } from './scorecards.controller';
 import { ScorecardsService } from './scorecards.service';
@@ -11,16 +13,17 @@ import { ScorecardsService } from './scorecards.service';
  * have different role matrices, and separating them keeps each authorisation
  * story readable in one file.
  *
- * Comments — the other half of FR5.3 — have no table in the schema and are a
- * recorded Phase 2 shortfall, not an omission here.
+ * Both halves of FR5.3 now live here: scorecards (M2.8) and comments, which
+ * had no table until the remaining-gaps pass and left the requirement half
+ * delivered despite the Handoff marking it "✅ Full".
  *
  * ReviewsController serves GET /v1/me/reviews (Handoff §B row 19), which the
  * Handoff assigns to this module even though its path is not under
  * `applications`.
  */
 @Module({
-  controllers: [ScorecardsController, ReviewsController],
-  providers: [ScorecardsService],
+  controllers: [ScorecardsController, ReviewsController, CommentsController],
+  providers: [ScorecardsService, CommentsService],
   exports: [ScorecardsService],
 })
 export class ScorecardsModule {}

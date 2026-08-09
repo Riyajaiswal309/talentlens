@@ -108,6 +108,7 @@ model Users {
   scoreOverrides   MatchScore[]    @relation("ScoreOverriddenBy")
   /// A login account may correspond to at most one candidate profile.
   candidateProfile Candidate?      @relation("CandidateAccount")
+  comments         Comment[]
 
   /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
   @@unique([companyId, email])
@@ -244,7 +245,15 @@ model Candidate {
 
   /// BR-05 — right to erasure. Soft delete keeps audit_logs referentially
   /// intact while removing the candidate from operational views.
+  ///
+  /// PRD §18: "erasing a candidate detaches PII while leaving the audit
+  /// skeleton intact". The erasure routine overwrites full_name, email and
+  /// phone and stamps these two columns; applications, stage history and the
+  /// audit trail all survive, so what happened is still reconstructable even
+  /// though who it happened to is not.
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  /// Who ran the erasure. NULL until one does.
+  erasedBy  String?   @map("erased_by") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -274,6 +283,7 @@ model Application {
   matchScores  MatchScore[]
   stageHistory StageHistory[]
   scorecards   Scorecard[]
+  comments     Comment[]
 
   /// PRD §17.4 — composite index serving the pipeline board load.
   @@index([jobId, currentStage])
@@ -462,6 +472,31 @@ model Scorecard {
 /// Never cascade-deleted (PRD §18): erasing a candidate detaches PII while
 /// leaving the audit skeleton resolvable, which is why resource_id is a plain
 /// UUID column rather than a foreign key.
+/// FR5.3 — "Comments and scorecards are visible to the full hiring team for
+/// each candidate." PRD §17 models scorecards and not comments, so the
+/// requirement was only half implementable. Shaped after `scorecards`, which
+/// is the documented sibling: same parent, same author FK, same cascade.
+///
+/// No `deleted_at`: a comment is hiring-team content about a candidate, not
+/// candidate-facing data, so BR-05 erasure detaches it via the candidate
+/// rather than soft-deleting the comment itself.
+model Comment {
+  id            String @id @default(uuid()) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  authorId      String @map("author_id") @db.Uuid
+  body          String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  author      Users       @relation(fields: [authorId], references: [id])
+
+  /// The thread for one candidate, newest last.
+  @@index([applicationId, createdAt])
+  @@map("comments")
+}
+
 model AuditLog {
   id String @id @default(uuid()) @db.Uuid
 

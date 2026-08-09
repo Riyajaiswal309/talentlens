@@ -31,6 +31,10 @@ additions.
 | A6  | **`jobs.ranking_weights`** + **`ranking_weights_updated_at`** — FR4.2 / Handoff Gap 2 needs per-job weights and its own timestamp; `jobs.updated_at` moves on any edit.                                                                                                   | Phase 3, Gap 2                        |
 | A7  | **`parsed_profiles.field_confidence`** + **`field_confirmations`** — FR3.2 / §20 stage 5 flags fields below 0.75; Gap 3 rule 4 records who confirmed each one.                                                                                                            | Phase 3, Gap 3                        |
 
+| A8 | **`comments` table** — FR5.3 reads "Comments **and** scorecards are visible to the full hiring team". PRD §17 models scorecards only, so the requirement was half implementable. Shaped after `scorecards`. | Remaining-gaps pass |
+| A9 | **`candidates.erased_by`** — BR-05 / §18 specify the erasure routine but nothing recorded who ran it. `deleted_at` already existed. | Remaining-gaps pass |
+| A10 | **Every new table needs its own `GRANT`.** M2.2 grants table by table and sets no `ALTER DEFAULT PRIVILEGES` — deliberately, since `audit_logs` must keep INSERT/SELECT only. The consequence is a standing rule: a table added without a GRANT is invisible to the application role and every request 500s. `comments` hit exactly that. | Remaining-gaps pass |
+
 ## B. Endpoints — PRD §23.2
 
 Handoff decision **D4** already authorises amending §23.2 with the unlisted
@@ -51,6 +55,8 @@ Not named in D4 and requiring their own line:
 | --- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | B1  | `GET /v1/applications/:id/scorecards`                  | FR5.3 team visibility. Phase 1 states the criterion as "scorecards listed on candidate detail", but Handoff row 13 excludes Hiring Managers from `GET /v1/applications/:id`, so serving them there would withhold it from the role HM-03 shows it to. |
 | B2  | `PATCH /v1/parsed-profiles/:id`                        | Handoff Table B.2 lists it as deferred to Phase 3; built in the Phase 3 integration.                                                                                                                                                                  |
+| B4  | `POST` / `GET /v1/applications/:id/comments`           | FR5.3's comments half. No endpoint was ever specified; the path mirrors the documented sibling `…/scorecards` exactly.                                                                                                                                |
+| B5  | `DELETE /v1/admin/candidates/:id`                      | BR-05. §17.1, §18 and §24.5 specify the routine and Handoff §I names `candidate.erased`, but no endpoint was written down.                                                                                                                            |
 | B3  | `ALL /v1/audit-logs`, `ALL /v1/audit-logs/*` → **405** | Gap 4 rule 3 requires write verbs to return 405. Two handlers, because a stacked pair of `@All` decorators registers only one.                                                                                                                        |
 
 ## C. Audit vocabulary — Handoff §I
@@ -87,30 +93,42 @@ closeout; before that an administrator filtering for a real event received a 400
 | E1  | **Handoff FR-coverage table marks FR5.3 "✅ Full".** Only the scorecards half is delivered; **comments have no table** and are not built. The row should read Partial.                                                                                                                                          |
 | E2  | **BR-07 feature identifiers.** M2.9 guessed `education_level_match` and `certification_match_count` and marked them provisional. Handoff Gap 2 prints all six verbatim: the correct names are `education_match` and `certification_match`. Corrected in code; the wrong names are pinned as rejected by a test. |
 
-## F. Not amendments — open items carried forward
+## F. Deferred, with the reason recorded
+
+Each of these was reviewed in the remaining-gaps pass and deliberately **not**
+built. They are deferred, not forgotten.
+
+| Item                                             | Decision                                                     | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Password reset**                               | **Do not build.**                                            | Handoff decision D6 is explicit: password reset is absent from PRD §11 and the recommendation is "add to PRD §31 backlog; **do not build silently**". Building it would invent a token lifetime, delivery channel and lockout policy that no document specifies. Operationally this leaves password auth with no recovery path, which is the known cost of the ruling.                                                                                                                                          |
+| **TOTP MFA**                                     | **Not built. Blocked on an unspecified enrolment contract.** | PRD §24.1 and Handoff §H require "TOTP required for Administrator; optional for Recruiter and Hiring Manager", and Phase 1 SC-02 designs the challenge screen. But **no enrolment endpoint, secret-storage shape, recovery-code policy or challenge-token contract exists in any document** — §23.2 has no MFA route at all. The verification half is specified; the enrolment half it depends on is not, and inventing it would fix a security contract by guesswork. Needs a decision before it can be built. |
+| **Scorecard structured prompts**                 | Not built.                                                   | Phase 1 HM-04 sketches "structured prompts" with no field list, types or scoring. Not PRD-named.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Scorecard save-draft**                         | Not built.                                                   | HM-04 lists a "Save draft" action; no draft state, lifetime or visibility rule is specified anywhere.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| **Terminal-stage filtering in `/v1/me/reviews`** | Current behaviour retained.                                  | No document says a Hired or Rejected application leaves the review queue. Filtering them would be an invented rule; the queue lists everything on an assigned job.                                                                                                                                                                                                                                                                                                                                              |
+| **FR6 interviews, FR7 analytics**                | **Deferred to Phase 2b**, per Handoff decision D3.           | D3 recommends deferral because both are additive with no upstream dependencies, and notes the Phase 2 DoD is then explicitly partial against PRD P2. The deferral had never been recorded; recording it here is that step. Gap 7 (`/v1/scheduling/:token`) and decision D5 are moot while D3 stands.                                                                                                                                                                                                            |
+
+## G. Not amendments — open items carried forward
 
 Deferred by explicit ruling, or blocked, and recorded here so they are not
 mistaken for oversights:
 
-- **TOTP MFA for Administrators** (§24.1) — never built; Admin login is
-  password-only.
-- **Password reset** (Handoff D6) — absent from the PRD; not built silently.
-- **`NotificationsModule`** (FR2.3) — appears in the Handoff module table but
-  **no milestone owns it**. Email delivery is not built, including for invites.
-- **Comments storage** (FR5.3) — see E1.
-- **Scorecard structured prompts and save-draft** (HM-04) — deferred; neither
-  is PRD-named.
-- **Terminal-stage filtering in `/v1/me/reviews`** — no rule specified; current
-  behaviour includes them.
-- **Malformed-cursor handling** in `list-jobs`, `list-public-jobs` and
-  `list-job-candidates` — `cursor` is typed as a bare string, so a malformed
-  value likely 500s. `/v1/me/reviews` and the audit browser validate it as a
-  UUID and return 400.
-- **BR-05 erasure routine** — `deleted_at` exists and is honoured on read; no
-  erasure process is implemented.
-- **FR6 (interviews) and FR7 (analytics)** — Handoff decision D3 recommends
-  deferral to Phase 2b; the deferral has never been formally recorded.
+- **TOTP MFA**, **password reset**, structured prompts, save-draft, review-queue
+  terminal filtering and FR6/FR7 — all deferred with reasons in section F.
+- **Email delivery.** `NotificationsModule` now exists with the console
+  transport the Handoff specifies (row 9, "Full — console transport in P2").
+  No real mail is sent, including for user invites: no provider, domain or
+  sender identity is named in any document.
 - **The real AI work** — see below.
+
+### Closed in the remaining-gaps pass
+
+- **Comments storage (FR5.3)** — table, endpoints and tests added; E1 above is
+  now the only outstanding part, which is correcting the Handoff's text.
+- **`NotificationsModule` (FR2.3)** — built at the size the Handoff describes.
+- **BR-05 erasure** — `DELETE /v1/admin/candidates/:id` detaches PII, deletes
+  stored resumes and retains the audit skeleton (§18).
+- **Malformed cursor** — `list-jobs`, `list-public-jobs` and
+  `list-job-candidates` now validate `cursor` as a UUID and return 400.
 
 ## G. Blocked: the model half of Phase 3
 

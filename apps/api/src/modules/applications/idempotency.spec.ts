@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { ApplicationsModule } from './applications.module';
 import { AuditService } from '../../common/audit/audit.service';
 import { CommonModule } from '../../common/common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
 import { AuditInterceptor } from '../../common/interceptors/audit.interceptor';
 import { CorrelationIdInterceptor } from '../../common/interceptors/correlation-id.interceptor';
@@ -66,6 +67,7 @@ describe('Idempotency-Key (PRD §23.1)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env'] }),
         CommonModule,
+        NotificationsModule,
         JobsModule,
         ApplicationsModule,
       ],

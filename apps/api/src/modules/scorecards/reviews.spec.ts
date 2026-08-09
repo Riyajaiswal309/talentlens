@@ -9,6 +9,7 @@ import { ScorecardsModule } from './scorecards.module';
 import { ApplicationsModule } from '../applications/applications.module';
 import { ApplicationsService } from '../applications/applications.service';
 import { CommonModule } from '../../common/common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
 import { CandidateOwnershipGuard } from '../../common/guards/candidate-ownership.guard';
 import { JobAssignmentGuard } from '../../common/guards/job-assignment.guard';
@@ -104,6 +105,7 @@ describe('GET /me/reviews (Handoff Gap 1)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env'] }),
         CommonModule,
+        NotificationsModule,
         AuthModule,
         JobsModule,
         ApplicationsModule,

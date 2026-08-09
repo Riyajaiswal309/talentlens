@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { ApplicationsModule } from './applications.module';
 import { ApplicationsService } from './applications.service';
 import { CommonModule } from '../../common/common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
 import { CandidateOwnershipGuard } from '../../common/guards/candidate-ownership.guard';
 import { JobAssignmentGuard } from '../../common/guards/job-assignment.guard';
@@ -92,6 +93,7 @@ describe('Application reads (BR-06 access control)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env'] }),
         CommonModule,
+        NotificationsModule,
         AuthModule,
         JobsModule,
         ApplicationsModule,

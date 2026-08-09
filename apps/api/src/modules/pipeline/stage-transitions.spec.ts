@@ -10,6 +10,7 @@ import { ApplicationsModule } from '../applications/applications.module';
 import { ApplicationsService } from '../applications/applications.service';
 import { AuditService } from '../../common/audit/audit.service';
 import { CommonModule } from '../../common/common.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { ProblemDetailsFilter } from '../../common/filters/problem-details.filter';
 import { CandidateOwnershipGuard } from '../../common/guards/candidate-ownership.guard';
 import { JobAssignmentGuard } from '../../common/guards/job-assignment.guard';
@@ -107,6 +108,7 @@ describe('Stage transitions (FR5.4, BR-01)', () => {
       imports: [
         ConfigModule.forRoot({ isGlobal: true, envFilePath: ['../../.env'] }),
         CommonModule,
+        NotificationsModule,
         AuthModule,
         JobsModule,
         ApplicationsModule,

@@ -122,6 +122,22 @@ export class PipelineService {
   }
 
   /**
+   * The candidate and job behind an application, for FR2.3 notification.
+   *
+   * Already authorised by the caller — the move it follows has happened — so
+   * this is a plain read with no scoping of its own.
+   */
+  findForNotification(applicationId: string) {
+    return this.prisma.application.findUnique({
+      where: { id: applicationId },
+      select: {
+        candidate: { select: { email: true, fullName: true } },
+        job: { select: { title: true } },
+      },
+    });
+  }
+
+  /**
    * FR5.2 — move many applications to one stage.
    *
    * Each candidate is processed through `changeStage` above, so the rules are
