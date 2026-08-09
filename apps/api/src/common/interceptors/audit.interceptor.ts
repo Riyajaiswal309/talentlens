@@ -44,17 +44,6 @@ export class AuditInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       concatMap(async (responseBody: unknown) => {
-        /*
-         * A handler may declare that it changed nothing — an idempotent
-         * replay returns the original response without touching a row. PRD
-         * §17.3 records state changes, so writing a second record here would
-         * make the trail claim an event that did not happen.
-         *
-         * Checked AFTER the handler runs, never before: the handler is what
-         * decides, and a route cannot opt out of auditing in advance (BR-03).
-         */
-        if (request.auditSuppressed) return responseBody;
-
         await this.write(metadata, request, responseBody);
         return responseBody;
       }),
@@ -99,23 +88,74 @@ export class AuditInterceptor implements NestInterceptor {
     const resourceId =
       readParam(request, metadata.resourceIdParam ?? 'id') ?? extractId(responseBody);
 
-    if (!resourceId) {
-      throw new Error(
-        `Auditable action '${metadata.action}' could not determine a resource id. ` +
-          'Provide resourceIdParam on @Audit() or return an object containing an id.',
-      );
+    /*
+     * `auditSuppressed` skips the DECLARED record only.
+     *
+     * Two handlers need this and they need it for different reasons. An
+     * idempotent replay changed nothing, so it has no events at all and sets
+     * no extras either. A bulk action has no single resource to name — its
+     * events are one per candidate, supplied as extras below — so the
+     * declared record has nothing to point at and must not be written.
+     *
+     * Checked AFTER the handler runs, never before: the handler decides, and
+     * no route can opt out of auditing in advance (BR-03).
+     */
+    if (!request.auditSuppressed) {
+      if (!resourceId) {
+        throw new Error(
+          `Auditable action '${metadata.action}' could not determine a resource id. ` +
+            'Provide resourceIdParam on @Audit() or return an object containing an id.',
+        );
+      }
+
+      await this.auditService.record({
+        actorId,
+        actorType,
+        action: metadata.action,
+        resourceType: metadata.resourceType,
+        resourceId,
+        correlationId,
+        beforeState: request.auditState?.before ?? null,
+        afterState: request.auditState?.after ?? null,
+      });
     }
 
-    await this.auditService.record({
-      actorId,
-      actorType,
-      action: metadata.action,
-      resourceType: metadata.resourceType,
-      resourceId,
-      correlationId,
-      beforeState: request.auditState?.before ?? null,
-      afterState: request.auditState?.after ?? null,
-    });
+    /*
+     * A request can be more than one auditable event. Handoff §I records a
+     * move into Hired as BOTH `application.stage_changed` and
+     * `application.hired`; writing only the first would drop an event the
+     * audit vocabulary names.
+     *
+     * Written here rather than by the handler so that every audit row for the
+     * request still lands before the response is emitted, and sequentially,
+     * so the declared action is always the earlier row.
+     */
+    for (const extra of request.auditExtra ?? []) {
+      /*
+       * An extra names its own resource when the route has none — a bulk
+       * action has no :id, so each per-candidate record must carry the
+       * application it is about. Failing loudly beats writing a row that
+       * points nowhere, which would be worse than no row at all.
+       */
+      const extraResourceId = extra.resourceId ?? resourceId;
+      if (!extraResourceId) {
+        throw new Error(
+          `Auditable action '${extra.action}' could not determine a resource id. ` +
+            'An additional audit record must set resourceId when the route has no :id.',
+        );
+      }
+
+      await this.auditService.record({
+        actorId,
+        actorType,
+        action: extra.action,
+        resourceType: extra.resourceType ?? metadata.resourceType,
+        resourceId: extraResourceId,
+        correlationId,
+        beforeState: extra.before ?? null,
+        afterState: extra.after ?? null,
+      });
+    }
   }
 }
 

@@ -30,6 +30,25 @@ export interface AuditState {
   after?: Prisma.InputJsonValue | null;
 }
 
+/**
+ * An audit record written IN ADDITION to the one @Audit() declares.
+ *
+ * Exists because a single request can be more than one auditable event.
+ * Handoff §I lists `application.stage_changed` for every transition AND
+ * `application.hired` / `application.rejected` for a terminal decision, so a
+ * move into Hired is both — recording only one would lose an event the audit
+ * vocabulary names explicitly.
+ *
+ * `resourceType` and `resourceId` default to the ones @Audit() resolved.
+ */
+export interface AdditionalAudit {
+  action: string;
+  resourceType?: string;
+  resourceId?: string;
+  before?: Prisma.InputJsonValue | null;
+  after?: Prisma.InputJsonValue | null;
+}
+
 export interface RequestContext extends Request {
   user?: AuthenticatedUser;
   /** PRD NFR11 — set by CorrelationIdInterceptor on every request. */
@@ -49,4 +68,13 @@ export interface RequestContext extends Request {
    * route out of auditing, which BR-03 forbids.
    */
   auditSuppressed?: boolean;
+  /**
+   * Extra audit records for a request that is more than one event.
+   *
+   * Written by AuditInterceptor after the record @Audit() declares, so all
+   * of them are committed before the response is emitted (PRD §15.1
+   * principle 4). Ignored when `auditSuppressed` is set — a handler that
+   * changed nothing has no events at all.
+   */
+  auditExtra?: AdditionalAudit[];
 }

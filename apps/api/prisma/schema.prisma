@@ -420,6 +420,11 @@ model Scorecard {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   author      Users       @relation(fields: [authorId], references: [id])
 
+  /// APPROVED (9 Aug 2026) — one scorecard per author per application.
+  /// Phase 1 HM-04 lists "already-submitted" as an error state, and the
+  /// constraint lives in the database rather than in a service check so a
+  /// concurrent double-submit cannot slip two rows past a read-then-write.
+  @@unique([applicationId, authorId])
   @@index([applicationId])
   @@map("scorecards")
 }

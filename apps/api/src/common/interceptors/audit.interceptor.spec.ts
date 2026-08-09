@@ -192,6 +192,163 @@ describe('AuditInterceptor (BR-03, PRD §15.1 principle 4)', () => {
     });
   });
 
+  /**
+   * A request can be more than one auditable event (Handoff §I: a move into
+   * Hired is both `application.stage_changed` and `application.hired`).
+   */
+  describe('additional audit records', () => {
+    it('writes extras after the declared action, in order', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({
+        auditExtra: [{ action: 'application.hired' }],
+      });
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).toHaveBeenCalledTimes(2);
+        expect(auditService.record.mock.calls[0]?.[0]).toMatchObject({
+          action: 'application.stage_changed',
+        });
+        expect(auditService.record.mock.calls[1]?.[0]).toMatchObject({
+          action: 'application.hired',
+        });
+        done();
+      });
+    });
+
+    it('an extra inherits resourceType, resourceId, actor and correlation id', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({ auditExtra: [{ action: 'application.rejected' }] });
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            action: 'application.rejected',
+            resourceType: 'application',
+            resourceId: 'resource-1',
+            actorId: 'user-1',
+            actorType: AuditActorType.USER,
+            correlationId: 'corr-1',
+          }),
+        );
+        done();
+      });
+    });
+
+    it('an extra may override its own resource and carry its own state', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({
+        auditExtra: [
+          {
+            action: 'application.hired',
+            resourceType: 'candidate',
+            resourceId: 'other-id',
+            before: { currentStage: 'Offer' },
+            after: { currentStage: 'Hired' },
+          },
+        ],
+      });
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            resourceType: 'candidate',
+            resourceId: 'other-id',
+            beforeState: { currentStage: 'Offer' },
+            afterState: { currentStage: 'Hired' },
+          }),
+        );
+        done();
+      });
+    });
+
+    it('fails the request if an EXTRA write fails — BR-03 applies to all of them', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({ auditExtra: [{ action: 'application.hired' }] });
+
+      auditService.record
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('db down'));
+
+      interceptor.intercept(context, next).subscribe({
+        next: () => done.fail('response must not be emitted when auditing fails'),
+        error: (err: Error) => {
+          expect(err.message).toBe('db down');
+          done();
+        },
+      });
+    });
+
+    /**
+     * `auditSuppressed` skips the DECLARED record only. A bulk action has no
+     * single resource to name, so it suppresses the declared record and
+     * supplies one record per candidate instead — those must still be written.
+     */
+    it('suppression skips the declared record but keeps the extras', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({
+        auditSuppressed: true,
+        auditExtra: [
+          { action: 'application.stage_changed', resourceId: 'app-1' },
+          { action: 'application.rejected', resourceId: 'app-1' },
+        ],
+      });
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).toHaveBeenCalledTimes(2);
+        expect(auditService.record.mock.calls.every((call) => call[0].resourceId === 'app-1')).toBe(
+          true,
+        );
+        done();
+      });
+    });
+
+    it('suppression with no extras writes nothing — the no-op case', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({ auditSuppressed: true });
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).not.toHaveBeenCalled();
+        done();
+      });
+    });
+
+    /**
+     * A bulk route has no :id, so an extra that names no resource of its own
+     * cannot be written anywhere meaningful. Failing loudly beats a row that
+     * points nowhere.
+     */
+    it('throws if an extra has no resource id and the route provides none', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext({
+        params: {},
+        auditSuppressed: true,
+        auditExtra: [{ action: 'application.hired' }],
+      });
+
+      // A bulk response carries per-item results, not a single `id`, so there
+      // is nothing for the interceptor to fall back on.
+      const bulkNext: CallHandler = { handle: () => of({ succeeded: [], failed: [] }) };
+
+      interceptor.intercept(context, bulkNext).subscribe({
+        next: () => done.fail('expected an error'),
+        error: (err: Error) => {
+          expect(err.message).toContain('could not determine a resource id');
+          done();
+        },
+      });
+    });
+
+    it('writes only the declared action when there are no extras', (done) => {
+      markAuditable({ action: 'application.stage_changed', resourceType: 'application' });
+      const { context } = makeContext();
+
+      interceptor.intercept(context, next).subscribe(() => {
+        expect(auditService.record).toHaveBeenCalledTimes(1);
+        done();
+      });
+    });
+  });
+
   it('still requires a correlation id for a public action (NFR11)', (done) => {
     markAuditable({ action: 'application.submitted', resourceType: 'application' });
     const { context } = makeContext({ user: undefined, correlationId: undefined });
