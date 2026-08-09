@@ -9,6 +9,12 @@ export interface AuditRecord {
    */
   actorId: string | null;
   actorType: AuditActorType;
+  /**
+   * Tenant the event belongs to (M2.10). Required on every new record so the
+   * audit browser can refuse cross-tenant reads; historical rows written
+   * before the column existed may be NULL, but nothing new may be.
+   */
+  companyId: string;
   action: string;
   resourceType: string;
   resourceId: string;
@@ -53,10 +59,20 @@ export class AuditService {
       throw new Error(`Audit action '${entry.action}' is PUBLIC but carries an actorId`);
     }
 
+    /*
+     * M2.10 — an unscoped record cannot be shown to the tenant it belongs to
+     * and cannot be withheld from the ones it does not. Refusing here means
+     * only pre-M2.10 rows are ever NULL.
+     */
+    if (!entry.companyId) {
+      throw new Error(`Audit action '${entry.action}' carries no companyId`);
+    }
+
     await this.prisma.auditLog.create({
       data: {
         actorId: entry.actorId,
         actorType: entry.actorType,
+        companyId: entry.companyId,
         action: entry.action,
         resourceType: entry.resourceType,
         resourceId: entry.resourceId,

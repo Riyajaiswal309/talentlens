@@ -1,5 +1,5 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { JobStatus, UserRole } from '@prisma/client';
 import request from 'supertest';
@@ -26,6 +26,10 @@ import type { AuthenticatedUser, RequestContext } from '../../common/types/authe
  * Guards and the audit interceptor are registered globally in main.ts, not by
  * this module, so they are out of scope here and covered by their own suites.
  */
+const OWNER_URL =
+  process.env.DATABASE_URL ??
+  'postgresql://talentlens:talentlens_dev@localhost:5432/talentlens?schema=public';
+
 describe('ApplicationsController (multipart intake)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -85,7 +89,24 @@ describe('ApplicationsController (multipart intake)', () => {
     publishedJobId = job.id;
   });
 
+  /**
+   * M2.10 — audit_logs.company_id is ON DELETE RESTRICT (PRD §18 keeps the
+   * audit trail out of cascade deletes), so this run's audit rows must go
+   * before its company can. Only the OWNER may delete them: the application
+   * role holds INSERT and SELECT alone (PRD §17.3).
+   */
+  async function clearAuditFor(companyId: string): Promise<void> {
+    const owner = new PrismaService({ get: () => OWNER_URL } as unknown as ConfigService);
+    try {
+      await owner.$connect();
+      await owner.auditLog.deleteMany({ where: { companyId } });
+    } finally {
+      await owner.$disconnect();
+    }
+  }
+
   afterAll(async () => {
+    await clearAuditFor(companyId);
     await prisma.company.deleteMany({ where: { id: companyId } });
     await prisma.candidate.deleteMany({ where: { email: { contains: suffix } } });
     await app.close();

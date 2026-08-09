@@ -45,6 +45,8 @@ export interface AdditionalAudit {
   action: string;
   resourceType?: string;
   resourceId?: string;
+  /** Defaults to the record's resolved tenant. */
+  companyId?: string;
   before?: Prisma.InputJsonValue | null;
   after?: Prisma.InputJsonValue | null;
 }
@@ -77,4 +79,12 @@ export interface RequestContext extends Request {
    * changed nothing has no events at all.
    */
   auditExtra?: AdditionalAudit[];
+  /**
+   * Tenant for the audit record, when the caller has none of their own.
+   *
+   * A public submission (FR2.1) has no principal, so the handler resolves the
+   * tenant from the job it is submitting to. For authenticated routes the
+   * actor's own companyId is used and this stays unset.
+   */
+  auditCompanyId?: string;
 }

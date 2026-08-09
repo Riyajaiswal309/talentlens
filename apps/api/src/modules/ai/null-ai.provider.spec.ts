@@ -185,6 +185,7 @@ describe('AI seam (Handoff §G)', () => {
 
         const resourceId = randomUUID();
         await new AuditService(prisma).record({
+          companyId: actor.companyId,
           actorId: actor.id,
           actorType: AuditActorType.USER,
           action: AI_AUDIT_ACTIONS.SCORE_GENERATED,
@@ -206,6 +207,12 @@ describe('AI seam (Handoff §G)', () => {
      * Decision 6: the hook is defined but NOT invoked in Phase 2. Asserted
      * against the source tree, because "nobody calls it" is exactly the kind
      * of property that decays silently.
+     *
+     * Two files NAME the action legitimately without emitting it: the
+     * constant's own definition, and the audit browser's filter vocabulary,
+     * which has to list every action a query may filter on. Emission means
+     * passing it to an audit write — `action:` or an @Audit() decorator —
+     * which is what the patterns below look for.
      */
     it('no production code emits score.generated', () => {
       const offenders: string[] = [];
@@ -220,11 +227,14 @@ describe('AI seam (Handoff §G)', () => {
           if (!entry.endsWith('.ts') || entry.endsWith('.spec.ts')) continue;
           // The constant's own definition is where the name is allowed to live.
           if (path.endsWith(join('ai', 'ai-audit-actions.ts'))) continue;
+          // The audit browser lists every filterable action by name.
+          if (path.endsWith(join('audit', 'audit-actions.ts'))) continue;
 
           const source = readFileSync(path, 'utf8');
-          if (source.includes('score.generated') || source.includes('SCORE_GENERATED')) {
-            offenders.push(path);
-          }
+          const emits =
+            /action:\s*(['"]score\.generated['"]|AI_AUDIT_ACTIONS\.SCORE_GENERATED)/.test(source) ||
+            /@Audit\([^)]*SCORE_GENERATED/.test(source);
+          if (emits) offenders.push(path);
         }
       }
 

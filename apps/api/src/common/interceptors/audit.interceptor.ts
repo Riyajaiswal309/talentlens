@@ -75,6 +75,26 @@ export class AuditInterceptor implements NestInterceptor {
     const actorType = actor ? AuditActorType.USER : AuditActorType.PUBLIC;
     const actorId = actor?.id ?? null;
 
+    /*
+     * M2.10 — every record carries its tenant. An authenticated caller brings
+     * their own; a public route must state which tenant the event belongs to,
+     * because there is no principal to infer it from.
+     *
+     * Resolved lazily: a request that writes nothing (an idempotent replay
+     * suppressing its record) needs no tenant, and demanding one would fail
+     * a request that has no audit event at all.
+     */
+    const requireCompanyId = (action: string): string => {
+      const resolved = actor?.companyId ?? request.auditCompanyId;
+      if (!resolved) {
+        throw new Error(
+          `Auditable action '${action}' could not determine a tenant. ` +
+            'A public route must set request.auditCompanyId.',
+        );
+      }
+      return resolved;
+    };
+
     const correlationId = request.correlationId;
     if (!correlationId) {
       // CorrelationIdInterceptor must run first (NFR11). If it did not, the
@@ -111,6 +131,7 @@ export class AuditInterceptor implements NestInterceptor {
       await this.auditService.record({
         actorId,
         actorType,
+        companyId: requireCompanyId(metadata.action),
         action: metadata.action,
         resourceType: metadata.resourceType,
         resourceId,
@@ -148,6 +169,7 @@ export class AuditInterceptor implements NestInterceptor {
       await this.auditService.record({
         actorId,
         actorType,
+        companyId: extra.companyId ?? requireCompanyId(extra.action),
         action: extra.action,
         resourceType: extra.resourceType ?? metadata.resourceType,
         resourceId: extraResourceId,

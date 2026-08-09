@@ -19,6 +19,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
   let prisma: PrismaService;
   let service: AuditService;
   let actorId: string;
+  let companyId: string;
   const correlationId = `test-${randomUUID()}`;
 
   beforeAll(async () => {
@@ -34,6 +35,8 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     const user = await prisma.users.findFirst();
     if (!user) throw new Error('No seeded users found. Run `pnpm prisma:seed` first.');
     actorId = user.id;
+    // M2.10 — every new audit record carries its tenant.
+    companyId = user.companyId;
   });
 
   afterAll(async () => {
@@ -53,6 +56,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     const resourceId = randomUUID();
 
     await service.record({
+      companyId,
       actorId,
       actorType: AuditActorType.USER,
       action: 'job.published',
@@ -75,6 +79,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
   it('DATABASE refuses UPDATE through the application role', async () => {
     const resourceId = randomUUID();
     await service.record({
+      companyId,
       actorId,
       actorType: AuditActorType.USER,
       action: 'job.published',
@@ -105,6 +110,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
       const resourceId = randomUUID();
 
       await service.record({
+        companyId,
         actorId: null,
         actorType: AuditActorType.PUBLIC,
         action: 'application.submitted',
@@ -127,6 +133,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
       const resourceId = randomUUID();
 
       await service.record({
+        companyId,
         actorId,
         actorType: AuditActorType.USER,
         action: 'job.created',
@@ -144,6 +151,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     it('rejects USER with no actorId before reaching the database', async () => {
       await expect(
         service.record({
+          companyId,
           actorId: null,
           actorType: AuditActorType.USER,
           action: 'job.created',
@@ -157,6 +165,7 @@ describe('AuditService (integration, PRD §17.3 append-only)', () => {
     it('rejects PUBLIC carrying an actorId before reaching the database', async () => {
       await expect(
         service.record({
+          companyId,
           actorId,
           actorType: AuditActorType.PUBLIC,
           action: 'application.submitted',

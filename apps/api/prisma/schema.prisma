@@ -84,8 +84,9 @@ model Company {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  users Users[]
-  jobs  Job[]
+  users     Users[]
+  jobs      Job[]
+  auditLogs AuditLog[]
 
   @@map("companies")
 }
@@ -449,6 +450,20 @@ model AuditLog {
   actorId   String?        @map("actor_id") @db.Uuid
   actorType AuditActorType @default(USER) @map("actor_type")
 
+  /**
+   * Tenant the event belongs to (M2.10, approved 9 Aug 2026).
+   *
+   * Required for every NEW record — AuditService refuses to write without
+   * one — but nullable, because rows written before this column existed
+   * cannot all be resolved. The backfill assigns a tenant only where the
+   * relationship is deterministic; anything else stays NULL and is treated
+   * as historical/unscoped rather than being guessed into the wrong tenant.
+   *
+   * Restrict, like actor_id: PRD §18 keeps the audit log out of cascade
+   * deletes, so a company with audit history cannot be removed silently.
+   */
+  companyId String? @map("company_id") @db.Uuid
+
   action        String
   resourceType  String  @map("resource_type")
   resourceId    String  @map("resource_id") @db.Uuid
@@ -465,12 +480,15 @@ model AuditLog {
    * NULL while actor_type remained USER — so deleting a user with audit
    * history is refused outright.
    */
-  actor Users? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  actor   Users?   @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
   /// PRD §17.4 — per-resource audit reconstruction.
   @@index([resourceId, createdAt(sort: Desc)])
   @@index([actorId, createdAt(sort: Desc)])
   @@index([actorType, createdAt(sort: Desc)])
   @@index([action, createdAt(sort: Desc)])
+  /// M2.10 — the audit browser always filters by tenant first.
+  @@index([companyId, createdAt(sort: Desc)])
   @@map("audit_logs")
 }

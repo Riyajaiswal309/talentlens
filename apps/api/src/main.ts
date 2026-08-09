@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 import { AuditService } from './common/audit/audit.service';
@@ -18,7 +19,7 @@ async function bootstrap(): Promise<void> {
 
   // PRD §23.1 — all endpoints versioned under /v1. /health stays at root so
   // uptime probes have a stable path across versions (PRD §25.1).
-  app.setGlobalPrefix('v1', { exclude: ['health'] });
+  app.setGlobalPrefix('v1', { exclude: ['health', 'api/docs'] });
 
   // PRD §24.1 — the refresh token arrives as an httpOnly cookie.
   app.use(cookieParser());
@@ -73,6 +74,30 @@ async function bootstrap(): Promise<void> {
 
   // RFC 7807 problem+json for every error (PRD §23.1).
   app.useGlobalFilters(new ProblemDetailsFilter());
+
+  /*
+   * PRD §23.1 — "The OpenAPI 3.0 specification is generated from NestJS
+   * decorators via @nestjs/swagger and published at /api/docs."
+   *
+   * Registered AFTER the global prefix so documented paths carry /v1, and
+   * excluded from that prefix itself so the docs stay at /api/docs rather
+   * than moving to /v1/api/docs.
+   */
+  const openApi = new DocumentBuilder()
+    .setTitle('TalentLens API')
+    .setDescription(
+      'AI-Powered Recruitment & Applicant Tracking System — Phase 2. ' +
+        'AI scoring is not active: getScore always returns NotScored (FR4.5).',
+    )
+    .setVersion('2.0')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' })
+    .addTag('admin', 'User, role, session and AI-toggle administration (FR8.1, FR8.2, FR8.4)')
+    .addTag('audit', 'Append-only audit trail: browse and export (FR8.3, NFR8)')
+    .build();
+
+  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, openApi), {
+    swaggerOptions: { persistAuthorization: true },
+  });
 
   const port = process.env.API_PORT ?? 3000;
   await app.listen(port);

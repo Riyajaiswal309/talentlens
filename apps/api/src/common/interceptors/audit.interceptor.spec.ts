@@ -11,6 +11,9 @@ function makeContext(overrides: Partial<RequestContext> = {}) {
   const request = {
     params: { id: 'resource-1' },
     correlationId: 'corr-1',
+    // M2.10 — a public route must state its tenant; an authenticated one
+    // inherits the actor's. Set here so the PUBLIC cases below are valid.
+    auditCompanyId: 'company-1',
     user: {
       id: 'user-1',
       role: UserRole.RECRUITER,

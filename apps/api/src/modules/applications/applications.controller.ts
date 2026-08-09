@@ -217,6 +217,12 @@ export class ApplicationsController {
      */
     req.params = { ...req.params, id: result.application.id };
     req.auditState = { before: null, after: toApplicationAuditSnapshot(result) };
+    /*
+     * Public route: no principal, so the tenant comes from the job being
+     * applied to. Without this the audit record would have no tenant and
+     * AuditService would refuse it (M2.10).
+     */
+    req.auditCompanyId = result.job.companyId;
 
     const response: SubmissionResponse = {
       id: result.application.id,
