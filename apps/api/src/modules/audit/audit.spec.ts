@@ -56,6 +56,8 @@ describe('AuditModule (FR8.3, NFR8)', () => {
   let tokens: TokenService;
 
   const suffix = randomUUID().slice(0, 8);
+  /** Marks the tenant-less row the unscoped-rows test writes, so it can be removed. */
+  const UNSCOPED_CORRELATION = `corr-unscoped-${randomUUID()}`;
 
   let companyA = '';
   let companyB = '';
@@ -256,6 +258,9 @@ describe('AuditModule (FR8.3, NFR8)', () => {
       await owner.matchScore.deleteMany({ where: { applicationId: { in: applicationIds } } });
       await owner.stageHistory.deleteMany({ where: { applicationId: { in: applicationIds } } });
       await owner.auditLog.deleteMany({ where: { companyId: { in: companies } } });
+      // The deliberately tenant-less row: it matches no company, so the
+      // delete above cannot reach it.
+      await owner.auditLog.deleteMany({ where: { correlationId: UNSCOPED_CORRELATION } });
       await owner.company.deleteMany({ where: { id: { in: companies } } });
       await owner.candidate.deleteMany({ where: { email: { contains: suffix } } });
     } finally {
@@ -295,6 +300,28 @@ describe('AuditModule (FR8.3, NFR8)', () => {
      * belong to no tenant and must surface for none.
      */
     it('never returns historical unscoped rows', async () => {
+      /*
+       * The unscoped row is created here rather than assumed.
+       *
+       * This test used to rely on rows left in the development database from
+       * before `audit_logs.company_id` existed, which made it pass or fail on
+       * the age of the local database rather than on the behaviour under
+       * test. Written through the OWNER connection because AuditService
+       * refuses to write a record with no tenant — which is the guarantee
+       * that makes these rows historical-only in the first place.
+       */
+      await owner.auditLog.create({
+        data: {
+          actorId: null,
+          actorType: AuditActorType.PUBLIC,
+          companyId: null,
+          action: 'application.submitted',
+          resourceType: 'application',
+          resourceId: randomUUID(),
+          correlationId: UNSCOPED_CORRELATION,
+        },
+      });
+
       const unscoped = await owner.auditLog.count({ where: { companyId: null } });
       const response = await browse(await tokenFor(adminA), '?limit=100').expect(200);
 

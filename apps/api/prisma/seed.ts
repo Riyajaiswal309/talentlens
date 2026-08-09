@@ -1,6 +1,16 @@
 /**
  * Seed data for local development.
  *
+ * RUNS AUTOMATICALLY BEFORE `pnpm test` (the `pretest` script), not only by
+ * hand. Three suites — audit.service.spec, null-ai.provider.spec and
+ * score-override.spec — need a user and an `ai_model_versions` row to exist,
+ * and say so in their own error text ("Run `pnpm prisma:seed` first"). Leaving
+ * that as a precondition someone has to remember means the suite passes or
+ * fails on the state of the local database rather than on the code, which is
+ * exactly what happened once during the Phase 2b closeout.
+ *
+ * Safe to repeat: every write below is an upsert against a fixed id.
+ *
  * Scope is exactly what the M2.2 brief and the Phase 2 Handoff require:
  *   - 1 company
  *   - 4 users, one per PRD §24.2 role
@@ -20,6 +30,24 @@
  */
 import { PrismaClient, UserRole, JobStatus } from '@prisma/client';
 import { Algorithm, hash } from '@node-rs/argon2';
+import { resolve } from 'node:path';
+
+/*
+ * Load the repo-root .env before the client reads DATABASE_URL.
+ *
+ * The API gets this from ConfigModule (`envFilePath: ['../../.env']`), but a
+ * bare `prisma db seed` has no Nest around it and would otherwise only work in
+ * a shell that had already sourced the file. Since this now runs as `pretest`,
+ * it has to work in a clean shell or it breaks `pnpm test` for everyone.
+ *
+ * Does not override anything already exported, so CI or a one-off
+ * DATABASE_URL=... still wins.
+ */
+try {
+  process.loadEnvFile(resolve(__dirname, '../../../.env'));
+} catch {
+  // No .env file — fine if the environment is already configured.
+}
 
 const prisma = new PrismaClient();
 

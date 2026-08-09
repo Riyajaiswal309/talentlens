@@ -18,9 +18,10 @@ again.
 
 ## A. Database — PRD §17
 
-PRD §17.2 defines 14 tables. The build has 15: thirteen of the PRD's fourteen —
-`interviews` belongs to deferred FR6 (section F) — plus `job_assignments` (A1)
-and `comments` (A8), and seven column or constraint additions.
+PRD §17.2 defines 14 tables. The build has 18: all fourteen of the PRD's own —
+`interviews` arrived with FR6 in Phase 2b — plus `job_assignments` (A1),
+`comments` (A8), `interview_slots` and `interview_interviewers` (A11), and
+seven column or constraint additions.
 
 | #   | Change                                                                                                                                                                                                                                                                    | Authorised by                         |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
@@ -35,23 +36,27 @@ and `comments` (A8), and seven column or constraint additions.
 | A8 | **`comments` table** — FR5.3 reads "Comments **and** scorecards are visible to the full hiring team". PRD §17 models scorecards only, so the requirement was half implementable. Shaped after `scorecards`. | Remaining-gaps pass |
 | A9 | **`candidates.erased_by`** — BR-05 / §18 specify the erasure routine but nothing recorded who ran it. `deleted_at` already existed. | Remaining-gaps pass |
 | A10 | **Every new table needs its own `GRANT`.** M2.2 grants table by table and sets no `ALTER DEFAULT PRIVILEGES` — deliberately, since `audit_logs` must keep INSERT/SELECT only. The consequence is a standing rule: a table added without a GRANT is invisible to the application role and every request 500s. `comments` hit exactly that. | Remaining-gaps pass |
+| A11 | **`interview_slots` and `interview_interviewers` tables** — PRD §17.2 models `interviews` alone. Gap 7 validation rule 2 requires that a confirmed `slotId` "belong to the set offered by _this_ token", which means the offered set must be stored; and Gap 7's response carries `interviewerNames: []`, which RC-11's interviewer picker fills. A join table rather than a name array, so a panel cannot drift from `users`. | Phase 2b, FR6 |
+| A12 | **`interviews` columns beyond PRD §17.2.** The PRD names `id`, `application_id`, `scheduled_at`, `calendar_event_id`; Phase 1 line 1240 adds `status`. Phase 2b adds `timezone` (Gap 7 carries a zone on every slot), `selected_slot_id` (which offer was taken) and `created_by` (RC-11 attributes the booking). `scheduled_at` and `calendar_event_id` are both nullable **as the normal case** — FR6.2 creates the interview before a time exists, and FR6.3 completes the workflow with no provider at all. | Phase 2b, FR6 |
+| A13 | **`InterviewStatus` enum** — `PENDING_SELECTION`, `SCHEDULED`, `CANCELLED`. Not enumerated anywhere; derived from Gap 7's `410` row, which fires when the interview is "cancelled or already scheduled" and so names two of the three, the third being the interval Gap 7 exists to serve. | Phase 2b, FR6 |
 
 ## B. Endpoints — PRD §23.2
 
-**38 routes are registered.** Counted from the route decorators, every one falls
-into exactly one of four groups, and only the last needs new text written:
+**43 routes are registered.** Counted from the route decorators, every one falls
+into exactly one of five groups, and only the last needs new text written:
 
-| Group                                                              | Count  | Status                                      |
-| ------------------------------------------------------------------ | ------ | ------------------------------------------- |
-| In PRD Table 23.1 and built                                        | 15     | Already documented                          |
-| Marked ⚠️ in Handoff Table B.1 → the **D4** amendment              | 12     | Already authorised                          |
-| In Handoff Table B.2 — specified, deferred to Phase 3, built there | 4      | Already documented                          |
-| Not written down anywhere — the rows below                         | 6      | **Amendment required**                      |
-| `GET /health`                                                      | 1      | PRD §NFR (`/health`); outside the v1 prefix |
-| **Total**                                                          | **38** |                                             |
+| Group                                                   | Count  | Status                                      |
+| ------------------------------------------------------- | ------ | ------------------------------------------- |
+| In PRD Table 23.1 and built                             | 17     | Already documented                          |
+| Marked ⚠️ in Handoff Table B.1 → the **D4** amendment   | 12     | Already authorised                          |
+| In Handoff Table B.2 — specified, deferred, built later | 6      | Already documented                          |
+| Not written down anywhere — rows B1 and B3–B6 below     | 7      | **Amendment required**                      |
+| `GET /health`                                           | 1      | PRD §NFR (`/health`); outside the v1 prefix |
+| **Total**                                               | **43** |                                             |
 
-Table 23.1 lists seventeen rows; the two not built are `POST /v1/interviews`
-and `GET /v1/analytics/funnel`, deferred with FR6/FR7 in section F.
+**Table 23.1 is now complete at 17 of 17.** `POST /v1/interviews` and
+`GET /v1/analytics/funnel` were its last two unbuilt rows; Phase 2b built both,
+so no PRD-listed endpoint remains outstanding.
 
 One inconsistency belongs to the Handoff rather than to this build: D4's prose
 authorises "the 10 unlisted endpoints" and enumerates ten, but Table B.1 marks
@@ -59,19 +64,26 @@ authorises "the 10 unlisted endpoints" and enumerates ten, but Table B.1 marks
 are flagged as needing the amendment yet omitted from D4's parenthetical. Both
 are built. The amendment should be recorded as covering twelve.
 
-Table B.2's four, all built in the Phase 3 integration: `GET` / `PUT /v1/jobs/:id/ranking-weights`,
-`GET /v1/jobs/:id/parse-review`, `PATCH /v1/parsed-profiles/:id` (B2 below, kept
-as its own row because Table B.2 also floats it as a possible Phase 2 landing).
+Table B.2's six. Four were built in the Phase 3 integration —
+`GET` / `PUT /v1/jobs/:id/ranking-weights`, `GET /v1/jobs/:id/parse-review`,
+`PATCH /v1/parsed-profiles/:id` (B2 below, kept as its own row because Table
+B.2 also floats it as a possible Phase 2 landing). The remaining two are Gap
+7's, built in Phase 2b: `GET /v1/scheduling/:token` and
+`POST /v1/scheduling/:token/confirm`. Table B.2 marks them "Pending D3", and D3
+resolved to "defer to Phase 2b", which is here.
 
-Not named in any document and requiring their own line:
+Not named in any document and requiring their own line. B1 and B3–B6 are the
+seven routes counted above; **B2 is counted in the Table B.2 group** and keeps
+a row here only because Table B.2 floats it as a possible Phase 2 landing:
 
-| #   | Endpoint                                               | Why it exists                                                                                                                                                                                                                                         |
-| --- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| B1  | `GET /v1/applications/:id/scorecards`                  | FR5.3 team visibility. Phase 1 states the criterion as "scorecards listed on candidate detail", but Handoff row 13 excludes Hiring Managers from `GET /v1/applications/:id`, so serving them there would withhold it from the role HM-03 shows it to. |
-| B2  | `PATCH /v1/parsed-profiles/:id`                        | Handoff Table B.2 lists it as deferred to Phase 3; built in the Phase 3 integration.                                                                                                                                                                  |
-| B3  | `ALL /v1/audit-logs`, `ALL /v1/audit-logs/*` → **405** | Gap 4 rule 3 requires write verbs to return 405. Two handlers, because a stacked pair of `@All` decorators registers only one.                                                                                                                        |
-| B4  | `POST` / `GET /v1/applications/:id/comments`           | FR5.3's comments half. No endpoint was ever specified; the path mirrors the documented sibling `…/scorecards` exactly.                                                                                                                                |
-| B5  | `DELETE /v1/admin/candidates/:id`                      | BR-05. §17.1, §18 and §24.5 specify the routine and Handoff §I names `candidate.erased`, but no endpoint was written down.                                                                                                                            |
+| #   | Endpoint                                               | Why it exists                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | `GET /v1/applications/:id/scorecards`                  | FR5.3 team visibility. Phase 1 states the criterion as "scorecards listed on candidate detail", but Handoff row 13 excludes Hiring Managers from `GET /v1/applications/:id`, so serving them there would withhold it from the role HM-03 shows it to.                      |
+| B2  | `PATCH /v1/parsed-profiles/:id`                        | Handoff Table B.2 lists it as deferred to Phase 3; built in the Phase 3 integration.                                                                                                                                                                                       |
+| B3  | `ALL /v1/audit-logs`, `ALL /v1/audit-logs/*` → **405** | Gap 4 rule 3 requires write verbs to return 405. Two handlers, because a stacked pair of `@All` decorators registers only one.                                                                                                                                             |
+| B4  | `POST` / `GET /v1/applications/:id/comments`           | FR5.3's comments half. No endpoint was ever specified; the path mirrors the documented sibling `…/scorecards` exactly.                                                                                                                                                     |
+| B5  | `DELETE /v1/admin/candidates/:id`                      | BR-05. §17.1, §18 and §24.5 specify the routine and Handoff §I names `candidate.erased`, but no endpoint was written down.                                                                                                                                                 |
+| B6  | `GET /v1/applications/:id/interviews`                  | Phase 1 flow 8's success criterion is "Interview appears on RC-11 and CA-05" and line 1240 binds `interviews` to both screens, neither reachable without a read path. §23.2 lists only the POST. Same path shape and scoping as `…/scorecards` (B1) and `…/comments` (B4). |
 
 ## C. Audit vocabulary — Handoff §I
 
@@ -85,20 +97,27 @@ closeout; before that an administrator filtering for a real event received a 400
 
 ## D. Behavioural rulings to record
 
-| #   | Ruling                                                                                                                                                                                                                                                                                                  | Source     |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
-| D1  | **Candidate deduplication** — every public submission creates its own `candidates` row. The table is not tenant-scoped and the endpoint is unauthenticated, so matching on email would join strangers' records across companies.                                                                        | 8 Aug 2026 |
-| D2  | **LocalStack (A1) and the ClamAV boundary (B1)** — S3 via LocalStack locally; the AV scan ships as a `ResumeScanner` seam with a pass-through implementation, bound in one place.                                                                                                                       | 8 Aug 2026 |
-| D3  | **Resume upload is mandatory**, max 10 MB, PDF/DOCX, magic-byte checked. FR2.1 is "apply via resume upload" and CA-02 offers no skip.                                                                                                                                                                   | 8 Aug 2026 |
-| D4  | **`Idempotency-Key` semantics** — optional; a repeat replays the original response; the same key with a different request is refused with 409 rather than silently answering the wrong submission. §23.1 specifies neither.                                                                             | 9 Aug 2026 |
-| D5  | **Closed jobs stay open to pipeline movement.** The specification makes a closed _job_ read-only (RC-04); it does not freeze its applications.                                                                                                                                                          | 9 Aug 2026 |
-| D6  | **Scorecard rating is an integer 1–5.** Phase 1 HM-04 says "rating scale" without bounds.                                                                                                                                                                                                               | 9 Aug 2026 |
-| D7  | **`/v1/me/reviews` scopes Administrators through `job_assignments`**, exactly like Hiring Managers. Gap 1 states the rule without exempting them, and an empty queue is explicitly "not an error".                                                                                                      | 9 Aug 2026 |
-| D8  | **Invited users carry no status column.** `users.password_hash` is already nullable and AuthService cannot authenticate without one, so an invited record exists and cannot log in.                                                                                                                     | 9 Aug 2026 |
-| D9  | **`PATCH /v1/applications/:id/score` returns 404 while no score exists**, which is every application until a model runs. A score is never fabricated: that would need a rationale and feature vector, which BR-02 and BR-07 exist to prevent.                                                           | 9 Aug 2026 |
-| D10 | **Audit query span capped at 366 days** (Handoff decision D8) and **`jobId` takes the wider meaning** — the job, its applications, and the scorecards and match scores on those applications.                                                                                                           | 9 Aug 2026 |
-| D11 | **§24.2 withholds AI scores from candidates.** Table 24.1 reads "View AI rankings + rationale: Candidate —", so `GET /v1/applications/:id` does not fetch a score for a candidate caller. §24.5's candidate-facing explanation is a separate request process.                                           | Phase 3    |
-| D12 | **The AI seam is `PersistedAiProvider`, not an HTTP provider.** `getScore` reads `match_scores`; `requestParse` publishes to the queue. The HTTP boundary lives in the worker, where §23.1 puts it — calling a model from a request path would make a page load wait on inference, which §15.1 forbids. | Phase 3    |
+| #   | Ruling                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Source     |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| D1  | **Candidate deduplication** — every public submission creates its own `candidates` row. The table is not tenant-scoped and the endpoint is unauthenticated, so matching on email would join strangers' records across companies.                                                                                                                                                                                                                                                                  | 8 Aug 2026 |
+| D2  | **LocalStack (A1) and the ClamAV boundary (B1)** — S3 via LocalStack locally; the AV scan ships as a `ResumeScanner` seam with a pass-through implementation, bound in one place.                                                                                                                                                                                                                                                                                                                 | 8 Aug 2026 |
+| D3  | **Resume upload is mandatory**, max 10 MB, PDF/DOCX, magic-byte checked. FR2.1 is "apply via resume upload" and CA-02 offers no skip.                                                                                                                                                                                                                                                                                                                                                             | 8 Aug 2026 |
+| D4  | **`Idempotency-Key` semantics** — optional; a repeat replays the original response; the same key with a different request is refused with 409 rather than silently answering the wrong submission. §23.1 specifies neither.                                                                                                                                                                                                                                                                       | 9 Aug 2026 |
+| D5  | **Closed jobs stay open to pipeline movement.** The specification makes a closed _job_ read-only (RC-04); it does not freeze its applications.                                                                                                                                                                                                                                                                                                                                                    | 9 Aug 2026 |
+| D6  | **Scorecard rating is an integer 1–5.** Phase 1 HM-04 says "rating scale" without bounds.                                                                                                                                                                                                                                                                                                                                                                                                         | 9 Aug 2026 |
+| D7  | **`/v1/me/reviews` scopes Administrators through `job_assignments`**, exactly like Hiring Managers. Gap 1 states the rule without exempting them, and an empty queue is explicitly "not an error".                                                                                                                                                                                                                                                                                                | 9 Aug 2026 |
+| D8  | **Invited users carry no status column.** `users.password_hash` is already nullable and AuthService cannot authenticate without one, so an invited record exists and cannot log in.                                                                                                                                                                                                                                                                                                               | 9 Aug 2026 |
+| D9  | **`PATCH /v1/applications/:id/score` returns 404 while no score exists**, which is every application until a model runs. A score is never fabricated: that would need a rationale and feature vector, which BR-02 and BR-07 exist to prevent.                                                                                                                                                                                                                                                     | 9 Aug 2026 |
+| D10 | **Audit query span capped at 366 days** (Handoff decision D8) and **`jobId` takes the wider meaning** — the job, its applications, and the scorecards and match scores on those applications.                                                                                                                                                                                                                                                                                                     | 9 Aug 2026 |
+| D11 | **§24.2 withholds AI scores from candidates.** Table 24.1 reads "View AI rankings + rationale: Candidate —", so `GET /v1/applications/:id` does not fetch a score for a candidate caller. §24.5's candidate-facing explanation is a separate request process.                                                                                                                                                                                                                                     | Phase 3    |
+| D12 | **The AI seam is `PersistedAiProvider`, not an HTTP provider.** `getScore` reads `match_scores`; `requestParse` publishes to the queue. The HTTP boundary lives in the worker, where §23.1 puts it — calling a model from a request path would make a page load wait on inference, which §15.1 forbids.                                                                                                                                                                                           | Phase 3    |
+| D13 | **`POST /v1/interviews` carries both scheduling paths.** §23.2 lists one endpoint and §11.6 describes two ways to reach an interview, so the body decides: `slots` is FR6.2 self-service, `scheduledAt` is FR6.3 manual. Exactly one is required — sending both or neither is a 400, because guessing would either strand an interview awaiting a selection nobody asked for or book a time the candidate never agreed to.                                                                        | Phase 2b   |
+| D14 | **The scheduling link expires when the last offered slot ends.** Gap 7 returns `expiresAt` but no document states a TTL. Rather than invent a constant, the expiry is derived from the data: past that moment every choice the link could express is already in the past. Nothing configurable, so there is no lifetime policy to get wrong.                                                                                                                                                      | Phase 2b   |
+| D15 | **`ManualCalendarProvider` reports itself _available_ and creates no event.** That pairing is FR6.3: the workflow must complete without a provider. Reporting unavailable would make every self-service confirmation return Gap 7's `503` and no interview could be booked on a default deployment. A NULL `calendar_event_id` is therefore a completed booking, not a failure.                                                                                                                   | Phase 2b   |
+| D16 | **Gap 7's `409` and `410` are different failures.** `410` is a link already spent or withdrawn before the request arrived; `409` is losing a race during it. The claim is a conditional `updateMany` on `status`, so the loser matches zero rows — Gap 7 rule 3 demands a transactional check, and a read-then-write would let two candidates both book.                                                                                                                                          | Phase 2b   |
+| D17 | **Funnel semantics.** "Reached" a stage means ever in it — still there, entered it, or left it — because `stage_history` records transitions and an application's first stage has no row. Conversion is against the previous stage by `position`. Time-in-stage counts **completed stays only**: an unfinished stay is a lower bound, and averaging it in would make a bottleneck look faster the longer candidates sit in it. Time-to-hire runs from `applied_at` to entering the `Hired` stage. | Phase 2b   |
+| D18 | **Without `jobId`, the funnel's stage axis is the union of the tenant's stage names** ordered by the lowest position any job gives them, name as tie-break. Stages are per-job (B2), so there is no single pipeline to report along; in practice every job is seeded with the same six §14.1 defaults and the union is those six.                                                                                                                                                                 | Phase 2b   |
+| D19 | **Interview routes are not audited.** Handoff §I Table I.1 fixes the vocabulary and names no interview event, so none is emitted — the same ruling already applied to scorecards (M2.8) and comments. Adding one unilaterally would undermine Gap 4 rule 2, which returns 400 for an action outside the list. If interviews should be audited, Table I.1 is where that is decided.                                                                                                                | Phase 2b   |
 
 ## E. Corrections to already-written text
 
@@ -119,19 +138,26 @@ built. They are deferred, not forgotten.
 | **Scorecard structured prompts**                 | Not built.                                                   | Phase 1 HM-04 sketches "structured prompts" with no field list, types or scoring. Not PRD-named.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | **Scorecard save-draft**                         | Not built.                                                   | HM-04 lists a "Save draft" action; no draft state, lifetime or visibility rule is specified anywhere.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | **Terminal-stage filtering in `/v1/me/reviews`** | Current behaviour retained.                                  | No document says a Hired or Rejected application leaves the review queue. Filtering them would be an invented rule; the queue lists everything on an assigned job.                                                                                                                                                                                                                                                                                                                                              |
-| **FR6 interviews, FR7 analytics**                | **Deferred to Phase 2b**, per Handoff decision D3.           | D3 recommends deferral because both are additive with no upstream dependencies, and notes the Phase 2 DoD is then explicitly partial against PRD P2. The deferral had never been recorded; recording it here is that step. Gap 7 (`/v1/scheduling/:token`) and decision D5 are moot while D3 stands.                                                                                                                                                                                                            |
+| **FR6.1 real calendar integration**              | **Not built. Blocked on an unspecified provider contract.**  | FR6.1 names Google and Microsoft Outlook. Both need an OAuth client registration, tenant-level connection storage, a consent flow and token refresh, and **no document specifies any of them** — §23.2 has no calendar route and §17 no connection table. What is built is the seam: `CalendarProvider` with `isAvailable()` and `createEvent()`, bound in one place, plus the FR6.3 degradation every caller already goes through. Attaching a real provider replaces one line in `InterviewsModule`.          |
+| **FR7.3 source-of-hire**                         | **Not built. No data exists to report.**                     | FR7.3 requires source "tracked and reported". Nothing defines a source column, a capture point on the application form (CA-02 collects name, email, phone and resume), a value vocabulary, or an attribution rule for a candidate who arrives by two routes. The funnel omits the field entirely rather than emitting a null or zero, which would state a measurement that was never taken. **Tracking has to be specified before reporting can be built.**                                                     |
+| **Interview cancellation endpoint**              | Not built; the state exists.                                 | Gap 7's `410` names "cancelled" as a state the token routes must handle, so `InterviewStatus.CANCELLED` exists and both routes honour it. But no document says who may cancel, whether the candidate is notified, or whether the slots are re-offered — so no endpoint was invented.                                                                                                                                                                                                                            |
 
 ## G. Not amendments — open items carried forward
 
 Deferred by explicit ruling, or blocked, and recorded here so they are not
 mistaken for oversights:
 
-- **TOTP MFA**, **password reset**, structured prompts, save-draft, review-queue
-  terminal filtering and FR6/FR7 — all deferred with reasons in section F.
+- **TOTP MFA**, **password reset**, structured prompts, save-draft,
+  review-queue terminal filtering, **FR6.1 real calendar providers**,
+  **FR7.3 source-of-hire** and interview cancellation — all deferred with
+  reasons in section F.
 - **Email delivery.** `NotificationsModule` now exists with the console
   transport the Handoff specifies (row 9, "Full — console transport in P2").
-  No real mail is sent, including for user invites: no provider, domain or
-  sender identity is named in any document.
+  No real mail is sent, including for user invites and **the FR6.2 scheduling
+  link**: no provider, domain or sender identity is named in any document. The
+  link is emitted as a path, not an absolute URL, for the same reason — no
+  candidate-facing hostname is specified, and a guessed one would be wrong in
+  a real inbox.
 - **The real AI work** — see below.
 
 ### Closed in the remaining-gaps pass
@@ -144,6 +170,37 @@ mistaken for oversights:
   stored resumes and retains the audit skeleton (§18).
 - **Malformed cursor** — `list-jobs`, `list-public-jobs` and
   `list-job-candidates` now validate `cursor` as a UUID and return 400.
+
+### Closed in Phase 2b
+
+- **FR6.2 / FR6.3 interview scheduling** — `InterviewsModule` with both paths,
+  Gap 7's two token routes built to its exact response shapes and error table,
+  and the `CalendarProvider` seam. FR6.1's real providers remain blocked (F).
+- **FR7.1 / FR7.2 analytics** — `GET /v1/analytics/funnel` with conversion by
+  stage, time-in-stage and time-to-hire, per role or tenant-wide. FR7.3 remains
+  unbuildable (F).
+- **PRD Table 23.1 is complete** — its last two unbuilt rows were these.
+
+#### Handoff decision D5 is now exercised, and should be ratified
+
+D5 recommends "signed, single-purpose, expiring token" for the FR6.2 link and
+marks itself **"Requires approval: Yes — add to §24.1"**; Gap 7 adds that the
+mechanism is `[PROP]` and "should not be made unilaterally". D3 deferred
+FR6 to Phase 2b, which made D5 live. It is implemented exactly as recommended
+and no further:
+
+- HMAC-SHA256 over a two-field payload — `interviewId` and `exp`, nothing else.
+  No user id, company id or role, so the token describes no principal and
+  cannot become a session. A test asserts the claim set is exactly those two.
+- Its own secret (`SCHEDULING_TOKEN_SECRET`), falling back to the refresh
+  secret and **never** the access secret, so a link sitting in an inbox is not
+  interchangeable with a session token.
+- Not a JWT: a fixed format with one hard-coded algorithm has no negotiable
+  `alg` header to attack.
+- Expiry derived from the offered slots (D14), so no TTL was invented.
+
+**§24.1 still needs the amendment D5 asks for.** The implementation is
+reversible and touches nothing else if a different mechanism is chosen.
 
 ## H. Blocked: the model half of Phase 3
 

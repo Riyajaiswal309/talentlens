@@ -66,6 +66,37 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * FR6.2 — "Candidates receive a self-service scheduling link."
+   *
+   * The third notification, and named as explicitly as the other two: Phase 1
+   * flow 8 step 3 is "send self-service scheduling link to candidate (FR6.2)".
+   *
+   * The token is delivered as a path, not an absolute URL. No document names
+   * a candidate-facing hostname, and inventing one would put a wrong link in
+   * a real inbox; the transport that eventually sends mail is where a base URL
+   * belongs.
+   */
+  async interviewSchedulingLink(input: {
+    email: string;
+    candidateName: string;
+    jobTitle: string;
+    token: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    await this.deliver({
+      to: input.email,
+      subject: `Choose your interview time for ${input.jobTitle}`,
+      body:
+        `Hello ${input.candidateName},\n\n` +
+        `You have been invited to interview for ${input.jobTitle}. ` +
+        `Choose a time that suits you here:\n\n` +
+        `  /scheduling/${input.token}\n\n` +
+        `This link is for this interview only and expires on ` +
+        `${input.expiresAt.toISOString()}.`,
+    });
+  }
+
   private async deliver(notification: {
     to: string;
     subject: string;

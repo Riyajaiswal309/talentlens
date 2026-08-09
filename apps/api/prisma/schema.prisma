@@ -69,6 +69,26 @@ enum ParseStatus {
   FAILED
 }
 
+/**
+ * Interview lifecycle (FR6.1–FR6.3).
+ *
+ * Three states, each named by an existing document rather than designed here.
+ * Handoff Gap 7's error table is the source: its `410` fires when the
+ * interview is "cancelled or already scheduled", which names CANCELLED and
+ * SCHEDULED and implies the third — the interval after slots are offered and
+ * before the candidate has chosen. Phase 1 line 1240 lists `status` as a
+ * column of `interviews` without enumerating it.
+ *
+ * PENDING_SELECTION is reachable only through the self-service path (FR6.2).
+ * FR6.3 manual scheduling writes SCHEDULED directly: the recruiter already
+ * knows the time, so there is nothing for a candidate to select.
+ */
+enum InterviewStatus {
+  PENDING_SELECTION
+  SCHEDULED
+  CANCELLED
+}
+
 // ---------------------------------------------------------------------------
 // Tenancy and identity
 // ---------------------------------------------------------------------------
@@ -109,6 +129,9 @@ model Users {
   /// A login account may correspond to at most one candidate profile.
   candidateProfile Candidate?      @relation("CandidateAccount")
   comments         Comment[]
+  /// FR6.1 — interviews this user booked, and those they are sitting on.
+  createdInterviews Interview[]            @relation("InterviewCreatedBy")
+  interviewPanels   InterviewInterviewer[]
 
   /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
   @@unique([companyId, email])
@@ -284,6 +307,7 @@ model Application {
   stageHistory StageHistory[]
   scorecards   Scorecard[]
   comments     Comment[]
+  interviews   Interview[]
 
   /// PRD §17.4 — composite index serving the pipeline board load.
   @@index([jobId, currentStage])
@@ -495,6 +519,119 @@ model Comment {
   /// The thread for one candidate, newest last.
   @@index([applicationId, createdAt])
   @@map("comments")
+}
+
+// ---------------------------------------------------------------------------
+// Interviews — FR6.1–FR6.3, Handoff Gap 7
+// ---------------------------------------------------------------------------
+
+/**
+ * A scheduled or proposed interview (PRD §17.2 Table 17.1 row `interviews`).
+ *
+ * The PRD names four columns — `id`, `application_id`, `scheduled_at`,
+ * `calendar_event_id` — and Phase 1 line 1240 adds `status`. The rest exist
+ * because Handoff Gap 7's request and response shapes require them; each is
+ * noted below against the line that asks for it.
+ *
+ * Hangs off `applications`, not `candidates`: Phase 1 flow 8 starts from
+ * RC-06/RC-11, both of which are per-application screens, and an interview
+ * for one role says nothing about the same person's application to another.
+ */
+model Interview {
+  id            String          @id @default(uuid()) @db.Uuid
+  applicationId String          @map("application_id") @db.Uuid
+  status        InterviewStatus @default(PENDING_SELECTION)
+
+  /**
+   * NULL until a time exists.
+   *
+   * FR6.2's self-service path creates the interview before the candidate has
+   * chosen, so there is a real interval with slots offered and no time set.
+   * The manual path (FR6.3) sets it at creation.
+   */
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz(6)
+
+  /// IANA zone. Gap 7 returns a timezone with every slot, so a confirmed
+  /// interview has to be able to say which one it was booked in.
+  timezone String?
+
+  /**
+   * The provider's event id (PRD §17.2).
+   *
+   * NULL is the normal state, not an error: FR6.3 requires the workflow to
+   * complete without calendar integration, and the default deployment has no
+   * provider configured. A non-null value means a real event was created.
+   */
+  calendarEventId String? @map("calendar_event_id")
+
+  /// Which offered slot the candidate took. NULL on the manual path.
+  selectedSlotId String? @unique @map("selected_slot_id") @db.Uuid
+
+  /// Recruiter or Administrator who booked it — RC-11 attributes the action.
+  createdBy String @map("created_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application  Application            @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  creator      Users                  @relation("InterviewCreatedBy", fields: [createdBy], references: [id])
+  slots        InterviewSlot[]        @relation("InterviewOfferedSlots")
+  selectedSlot InterviewSlot?         @relation("InterviewSelectedSlot", fields: [selectedSlotId], references: [id])
+  interviewers InterviewInterviewer[]
+
+  /// CA-05 and RC-11 both read "the interviews on this application, newest first".
+  @@index([applicationId, createdAt])
+  @@map("interviews")
+}
+
+/**
+ * One time window offered to the candidate (Handoff Gap 7).
+ *
+ * Gap 7's `GET /v1/scheduling/:token` returns
+ * `slots: [{ slotId, startsAt, endsAt, timezone }]`, and validation rule 2
+ * requires that a confirmed `slotId` "belong to the set offered by *this*
+ * token". That set has to be stored to be checked, which is what this table
+ * is. Rows exist only for the self-service path.
+ */
+model InterviewSlot {
+  id          String   @id @default(uuid()) @db.Uuid
+  interviewId String   @map("interview_id") @db.Uuid
+  startsAt    DateTime @map("starts_at") @db.Timestamptz(6)
+  endsAt      DateTime @map("ends_at") @db.Timestamptz(6)
+  /// IANA zone, per slot — Gap 7 carries it on the slot, not the interview.
+  timezone    String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  interview   Interview  @relation("InterviewOfferedSlots", fields: [interviewId], references: [id], onDelete: Cascade)
+  selectedFor Interview? @relation("InterviewSelectedSlot")
+
+  /// CA-06 renders the picker in chronological order.
+  @@index([interviewId, startsAt])
+  @@map("interview_slots")
+}
+
+/**
+ * The interview panel (Phase 1 RC-11 "interviewer picker", Gap 7
+ * `interviewerNames: []`).
+ *
+ * A join table rather than an array column: interviewers are `users`, and a
+ * name array would drift the moment someone is renamed or deactivated.
+ * Composite primary key, so the same person cannot be added to one panel twice.
+ */
+model InterviewInterviewer {
+  interviewId String @map("interview_id") @db.Uuid
+  userId      String @map("user_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  user      Users     @relation(fields: [userId], references: [id])
+
+  @@id([interviewId, userId])
+  @@index([userId])
+  @@map("interview_interviewers")
 }
 
 model AuditLog {

@@ -5,8 +5,10 @@ import { CorrelationIdMiddleware } from './common/middleware/correlation-id.midd
 import { AuthModule } from './modules/auth/auth.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AiModule } from './modules/ai/ai.module';
+import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
+import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
@@ -19,8 +21,9 @@ import { HealthController } from './health/health.controller';
  * M2.3 added the cross-cutting layer, M2.4 AuthModule, M2.6 JobsModule,
  * M2.7 ApplicationsModule, M2.8 PipelineModule and ScorecardsModule,
  * M2.9 the AiModule seam, M2.10 Admin and Audit.
- * Remaining feature modules — Applications, Pipeline, Scorecards, Admin,
- * Audit, Notifications, Ai — arrive from M2.7 in the Handoff Part 3 order.
+ *
+ * Phase 2b adds the two modules PRD §15.3 names and Handoff decision D3
+ * deferred: InterviewsModule (FR6) and AnalyticsModule (FR7).
  */
 @Module({
   imports: [
@@ -38,6 +41,9 @@ import { HealthController } from './health/health.controller';
     AiModule,
     AdminModule,
     AuditModule,
+    // Phase 2b — FR6 and FR7, deferred out of Phase 2 by Handoff decision D3.
+    InterviewsModule,
+    AnalyticsModule,
   ],
   controllers: [HealthController],
 })
