@@ -188,30 +188,37 @@ mistaken for oversights:
   unbuildable (F).
 - **PRD Table 23.1 is complete** — its last two unbuilt rows were these.
 
-#### Handoff decision D5 is now exercised, and should be ratified
+#### Handoff decision D5 — RATIFIED
 
 D5 recommends "signed, single-purpose, expiring token" for the FR6.2 link and
 marks itself **"Requires approval: Yes — add to §24.1"**; Gap 7 adds that the
-mechanism is `[PROP]` and "should not be made unilaterally". D3 deferred
-FR6 to Phase 2b, which made D5 live. It is implemented exactly as recommended
-and no further:
+mechanism is `[PROP]` and "should not be made unilaterally". D3 deferred FR6 to
+Phase 2b, which made D5 live. It was implemented exactly as recommended and no
+further, and is **ratified as the scheduling-link credential**. The `[PROP]`
+marking on Gap 7 and the "requires approval" flag on D5 are both discharged by
+this entry; nothing about the mechanism changed at ratification.
 
-- HMAC-SHA256 over a two-field payload — `interviewId` and `exp`, nothing else.
-  No user id, company id or role, so the token describes no principal and
-  cannot become a session. A test asserts the claim set is exactly those two.
-- Its own secret (`SCHEDULING_TOKEN_SECRET`), falling back to the refresh
-  secret and **never** the access secret, so a link sitting in an inbox is not
-  interchangeable with a session token.
-- Not a JWT: a fixed format with one hard-coded algorithm has no negotiable
-  `alg` header to attack.
-- Expiry derived from the offered slots (D14), so no TTL was invented.
+The amendment D5 asks for is the row below, added to §24.1's "Control /
+Implementation" table. That table previously had six rows — password storage,
+session tokens, refresh rotation, SSO, MFA, session revocation — and no row for
+the scheduling-link credential, which was the only credential the system issues
+that the authentication section did not describe.
 
-**§24.1 still needs the amendment D5 asks for**, and the precise gap is this:
-§24.1's "Control / Implementation" table has six rows — password storage,
-session tokens, refresh rotation, SSO, MFA, session revocation — and **no row
-for the scheduling-link credential**. It is the only credential the system
-issues that the authentication section does not describe. The implementation is
-reversible and touches nothing else if a different mechanism is chosen.
+##### Ratified amendment to PRD §24.1 — insert into Table "Authentication"
+
+| Control                           | Implementation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Interview scheduling link (FR6.2) | Signed, single-purpose, expiring token, **not a session credential**. Format `<payload>.<signature>`, where `<payload>` is base64url JSON of exactly `{ interviewId, exp }` and `<signature>` is HMAC-SHA256 over that payload, compared in constant time. It carries **no principal** — no user id, company id or role — and admits access to the one interview it names and nothing else (Gap 7 rule 4, BR-06). Signed with `SCHEDULING_TOKEN_SECRET`, falling back to `JWT_REFRESH_SECRET` when unset so a fresh checkout works; **never** `JWT_ACCESS_SECRET`, so a link sitting in an inbox for days is not interchangeable with a session token. The service refuses to start if neither secret is present. Deliberately **not a JWT**: a fixed format with one hard-coded algorithm has no negotiable `alg` header. Expiry is derived from the offered slots — the end of the last slot — not from a configured lifetime. Invalid, forged and expired tokens are indistinguishable in the response (`401`). |
+
+Every clause above states behaviour already present in the repository at
+`f877f54`, verified against `scheduling-token.service.ts` and the fourteen
+assertions in `scheduling-token.spec.ts`. No TTL, principal, claim, format or
+provider was introduced by ratifying it.
+
+**Still outstanding on the documents, not on the build:** §24.1 lives in
+`docs/master-prd-v3.pdf`, which this repository cannot edit as text. The row
+above is the approved wording to apply when the PRD is next regenerated; until
+then this register carries it, exactly as it has carried every other amendment.
 
 ## H. Blocked: the model half of Phase 3
 
