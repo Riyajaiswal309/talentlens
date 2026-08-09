@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { CommonModule } from './common/common.module';
 import { CorrelationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { AuthModule } from './modules/auth/auth.module';
+import { AiModule } from './modules/ai/ai.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
@@ -13,7 +14,8 @@ import { HealthController } from './health/health.controller';
  * Root module.
  *
  * M2.3 added the cross-cutting layer, M2.4 AuthModule, M2.6 JobsModule,
- * M2.7 ApplicationsModule, M2.8 PipelineModule and ScorecardsModule.
+ * M2.7 ApplicationsModule, M2.8 PipelineModule and ScorecardsModule,
+ * M2.9 the AiModule seam.
  * Remaining feature modules — Applications, Pipeline, Scorecards, Admin,
  * Audit, Notifications, Ai — arrive from M2.7 in the Handoff Part 3 order.
  */
@@ -29,6 +31,7 @@ import { HealthController } from './health/health.controller';
     ApplicationsModule,
     PipelineModule,
     ScorecardsModule,
+    AiModule,
   ],
   controllers: [HealthController],
 })

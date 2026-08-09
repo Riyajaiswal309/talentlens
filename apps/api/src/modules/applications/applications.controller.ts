@@ -18,6 +18,8 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { memoryStorage } from 'multer';
+import { AiScoringPort } from '../ai/ai-scoring.port';
+import { toWireScore, type WireScore } from '../ai/score-view';
 import { IdempotencyService } from '../../common/idempotency/idempotency.service';
 import { Audit } from '../../common/decorators/audit.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -75,9 +77,19 @@ interface ApplicationDetailResponse {
     mimeType: string;
     uploadedAt: string;
   } | null;
+  /**
+   * RC-06 renders a score panel. Resolved through AiScoringPort, so it is
+   * null in Phase 2 (NotScored) and populated in Phase 3 without a change
+   * here. A CANDIDATE reading their own application sees the same null: no
+   * assessment data is exposed to the person being assessed.
+   */
+  score: WireScore | null;
 }
 
-function toDetailResponse(application: ApplicationDetail): ApplicationDetailResponse {
+function toDetailResponse(
+  application: ApplicationDetail,
+  score: WireScore | null,
+): ApplicationDetailResponse {
   return {
     id: application.id,
     reference: application.id.slice(0, 8).toUpperCase(),
@@ -103,6 +115,7 @@ function toDetailResponse(application: ApplicationDetail): ApplicationDetailResp
           uploadedAt: application.resume.createdAt.toISOString(),
         }
       : null,
+    score,
   };
 }
 
@@ -124,6 +137,7 @@ export class ApplicationsController {
   constructor(
     private readonly applications: ApplicationsService,
     private readonly idempotency: IdempotencyService,
+    private readonly ai: AiScoringPort,
   ) {}
 
   /**
@@ -329,6 +343,7 @@ export class ApplicationsController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<ApplicationDetailResponse> {
-    return toDetailResponse(await this.applications.findOne(user, id));
+    const application = await this.applications.findOne(user, id);
+    return toDetailResponse(application, toWireScore(await this.ai.getScore(application.id)));
   }
 }
