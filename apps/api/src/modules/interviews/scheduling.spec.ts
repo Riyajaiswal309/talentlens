@@ -50,6 +50,10 @@ class OutageCalendarProvider extends CalendarProvider {
   async createEvent() {
     return null;
   }
+  // A provider that is down reports no free/busy data either (FR6.1 seam).
+  async getAvailability() {
+    return null;
+  }
 }
 
 describe('Self-service scheduling (FR6.2, Handoff Gap 7)', () => {
@@ -132,6 +136,10 @@ describe('Self-service scheduling (FR6.2, Handoff Gap 7)', () => {
       .useValue({
         isAvailable: () => (providerDown ? outage.isAvailable() : true),
         createEvent: async () => null,
+        // `useValue` is untyped, so this is not enforced by the compiler —
+        // kept in step with CalendarProvider by hand so the double cannot
+        // drift into something the real token could never be.
+        getAvailability: async () => null,
       })
       .compile();
 
