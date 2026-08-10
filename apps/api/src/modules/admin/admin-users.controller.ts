@@ -19,6 +19,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthenticatedUser, RequestContext } from '../../common/types/authenticated-request';
 import { AdminUsersService } from './admin-users.service';
+import { toAuditState } from '../calendar/calendar-connections.service';
 import { ChangeRoleDto, CreateUserDto, ListUsersQueryDto } from './dto/admin-user.dto';
 
 /** Phase 1 AD-02 — user table with role and last-active. */
@@ -126,6 +127,23 @@ export class AdminUsersController {
       before: null,
       after: { revokedCount: result.revokedCount, targetUserId: id },
     };
+
+    /*
+     * FR6.1 D45 — one `calendar.disconnected` per connection actually dropped,
+     * with THIS ADMINISTRATOR as the actor, matching how the surrounding
+     * `auth.sessions_revoked` attributes an action taken on someone else's
+     * behalf. No records when the user held no connections.
+     *
+     * State carries provider and account identifier only (D43); the credential
+     * was cleared by the service and never reaches the audit log.
+     */
+    req.auditExtra = result.disconnectedCalendars.map((connection) => ({
+      action: 'calendar.disconnected',
+      resourceType: 'calendar_connection',
+      resourceId: connection.id,
+      before: toAuditState(connection),
+      after: null,
+    }));
 
     return { revokedCount: result.revokedCount, revokedAt: result.revokedAt.toISOString() };
   }

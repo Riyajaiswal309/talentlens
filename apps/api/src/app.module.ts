@@ -7,6 +7,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AiModule } from './modules/ai/ai.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
 import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JobsModule } from './modules/jobs/jobs.module';
@@ -41,6 +42,10 @@ import { HealthController } from './health/health.controller';
     AiModule,
     AdminModule,
     AuditModule,
+    // FR6.1 Phase 1 — calendar connection foundation. AdminModule imports it
+    // directly for the FR8.4 revocation D45 requires; listed here so its
+    // controller is registered.
+    CalendarModule,
     // Phase 2b — FR6 and FR7, deferred out of Phase 2 by Handoff decision D3.
     InterviewsModule,
     AnalyticsModule,

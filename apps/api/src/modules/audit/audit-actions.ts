@@ -39,6 +39,14 @@ export const AUDIT_ACTIONS = [
   // `application.submitted`; this records a later change, which alters a
   // reported business metric (amendment C3).
   'application.source_changed',
+  // FR6.1 — calendar connection lifecycle (amendments C4, D43). State carries
+  // provider and account_identifier only; never credential material.
+  // `calendar.connected` is listed but not yet emitted: it belongs to the
+  // provider OAuth adapter, which is not built. The vocabulary is allowed to
+  // be broader than what is emitted; the reverse would make a real event
+  // unfilterable.
+  'calendar.connected',
+  'calendar.disconnected',
   'admin.ai_scoring_changed',
   'admin.role_changed',
   'admin.user_invited',

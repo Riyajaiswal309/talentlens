@@ -72,18 +72,15 @@ enum ParseStatus {
 /**
  * How a candidate reached the role (FR7.3, "source-of-hire is tracked and
  * reported").
- *
  * A CLOSED four-value set, approved 10 Aug 2026. Three are anchored in the
  * authoring brief's "Candidate data sources (direct upload, job board
  * integrations, referrals)"; `career_site` renames "direct upload", which
  * names an ingestion mechanism rather than a channel, and matches the public
  * board this system already serves at GET /v1/public/jobs. `other` is the
  * residual.
- *
  * An enum rather than free text: on an unauthenticated endpoint free text is
  * an unbounded PII surface — candidates type a referrer's name into it — and
  * it would make the analytics dimension uncountable (D27, D28).
- *
  * Widening this later is an additive migration and invalidates no stored row.
  */
 enum ApplicationSource {
@@ -94,15 +91,40 @@ enum ApplicationSource {
 }
 
 /**
+ * Calendar providers in v1 scope (FR6.1, amendment D35).
+ * §11.6 names Google and Microsoft Outlook together and sets no minimum, so
+ * both are in scope. The value identifies which adapter owns a connection; no
+ * provider-specific behaviour may surface through the scheduling API.
+ */
+enum CalendarProvider {
+  google
+  microsoft
+}
+
+/**
+ * Connection lifecycle (FR6.1, amendments D36 / D45).
+ * `disconnected` is the terminal state a connection reaches when its refresh
+ * token expires or is revoked at the provider. D36 requires exactly that —
+ * "expired or revoked credentials transition the connection to a disconnected
+ * state rather than endless retry" — so the state exists to stop the adapter
+ * retrying against a credential that will never work again.
+ * A disconnected row is kept rather than deleted so the audit trail and the
+ * UI can distinguish "never connected" from "was connected and stopped
+ * working". Its stored credential is cleared when it enters this state.
+ */
+enum CalendarConnectionStatus {
+  connected
+  disconnected
+}
+
+/**
  * Interview lifecycle (FR6.1–FR6.3).
- *
  * Three states, each named by an existing document rather than designed here.
  * Handoff Gap 7's error table is the source: its `410` fires when the
  * interview is "cancelled or already scheduled", which names CANCELLED and
  * SCHEDULED and implies the third — the interval after slots are offered and
  * before the candidate has chosen. Phase 1 line 1240 lists `status` as a
  * column of `interviews` without enumerating it.
- *
  * PENDING_SELECTION is reachable only through the self-service path (FR6.2).
  * FR6.3 manual scheduling writes SCHEDULED directly: the recruiter already
  * knows the time, so there is nothing for a candidate to select.
@@ -143,19 +165,21 @@ model Users {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  createdJobs      Job[]           @relation("JobCreatedBy")
-  jobAssignments   JobAssignment[]
-  stageChanges     StageHistory[]
-  scorecards       Scorecard[]
-  auditLogs        AuditLog[]
-  scoreOverrides   MatchScore[]    @relation("ScoreOverriddenBy")
+  company             Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdJobs         Job[]                  @relation("JobCreatedBy")
+  jobAssignments      JobAssignment[]
+  stageChanges        StageHistory[]
+  scorecards          Scorecard[]
+  auditLogs           AuditLog[]
+  scoreOverrides      MatchScore[]           @relation("ScoreOverriddenBy")
   /// A login account may correspond to at most one candidate profile.
-  candidateProfile Candidate?      @relation("CandidateAccount")
-  comments         Comment[]
+  candidateProfile    Candidate?             @relation("CandidateAccount")
+  comments            Comment[]
   /// FR6.1 — interviews this user booked, and those they are sitting on.
-  createdInterviews Interview[]            @relation("InterviewCreatedBy")
-  interviewPanels   InterviewInterviewer[]
+  createdInterviews   Interview[]            @relation("InterviewCreatedBy")
+  interviewPanels     InterviewInterviewer[]
+  /// FR6.1 D34 — calendars this user personally authorised. Never another's.
+  calendarConnections CalendarConnection[]
 
   /// Email is unique per tenant, not globally (multi-tenant, PRD §15.1).
   @@unique([companyId, email])
@@ -323,13 +347,11 @@ model Application {
 
   /**
    * FR7.3 — the channel this application arrived through.
-   *
    * On `applications`, not `candidates`: decision D1 gives every submission
    * its own candidate row, so one person applying to two roles through two
    * channels would be ambiguous at candidate level. BR-05 erasure also
    * retains applications while detaching candidate PII, so attribution stored
    * here survives an erasure and the funnel stays correct afterwards.
-   *
    * Nullable, and NULL is a real state rather than a defect: it means "not
    * recorded", which is true of every row written before this column existed
    * and of any submission where the candidate declined to answer. The funnel
@@ -567,12 +589,10 @@ model Comment {
 
 /**
  * A scheduled or proposed interview (PRD §17.2 Table 17.1 row `interviews`).
- *
  * The PRD names four columns — `id`, `application_id`, `scheduled_at`,
  * `calendar_event_id` — and Phase 1 line 1240 adds `status`. The rest exist
  * because Handoff Gap 7's request and response shapes require them; each is
  * noted below against the line that asks for it.
- *
  * Hangs off `applications`, not `candidates`: Phase 1 flow 8 starts from
  * RC-06/RC-11, both of which are per-application screens, and an interview
  * for one role says nothing about the same person's application to another.
@@ -584,7 +604,6 @@ model Interview {
 
   /**
    * NULL until a time exists.
-   *
    * FR6.2's self-service path creates the interview before the candidate has
    * chosen, so there is a real interval with slots offered and no time set.
    * The manual path (FR6.3) sets it at creation.
@@ -597,7 +616,6 @@ model Interview {
 
   /**
    * The provider's event id (PRD §17.2).
-   *
    * NULL is the normal state, not an error: FR6.3 requires the workflow to
    * complete without calendar integration, and the default deployment has no
    * provider configured. A non-null value means a real event was created.
@@ -626,7 +644,6 @@ model Interview {
 
 /**
  * One time window offered to the candidate (Handoff Gap 7).
- *
  * Gap 7's `GET /v1/scheduling/:token` returns
  * `slots: [{ slotId, startsAt, endsAt, timezone }]`, and validation rule 2
  * requires that a confirmed `slotId` "belong to the set offered by *this*
@@ -655,7 +672,6 @@ model InterviewSlot {
 /**
  * The interview panel (Phase 1 RC-11 "interviewer picker", Gap 7
  * `interviewerNames: []`).
- *
  * A join table rather than an array column: interviewers are `users`, and a
  * name array would drift the moment someone is renamed or deactivated.
  * Composite primary key, so the same person cannot be added to one panel twice.
@@ -720,4 +736,75 @@ model AuditLog {
   /// M2.10 — the audit browser always filters by tenant first.
   @@index([companyId, createdAt(sort: Desc)])
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Calendar connections — FR6.1, amendments D34–D37, D40, D44, D45
+// ---------------------------------------------------------------------------
+
+/**
+ * One interviewer's authorisation to read their own calendar.
+ * OWNERSHIP IS THE POINT (D34). The row belongs to the `users` row that
+ * authorised it and to nobody else: no tenant-wide service account, no
+ * recruiter connecting on a colleague's behalf. Tenancy is reached through
+ * that user's `company_id`, the same indirection `applications` uses through
+ * its job — there is no `company_id` here to drift out of step with the owner.
+ * NOT SPECIFIED BY PRD §17.2. The table exists because FR6.1 cannot work
+ * without it and no document defines one; the contract it implements was
+ * approved as D34–D45 rather than derived.
+ */
+model CalendarConnection {
+  id       String           @id @default(uuid()) @db.Uuid
+  userId   String           @map("user_id") @db.Uuid
+  provider CalendarProvider
+
+  /**
+   * The provider-side account this connection actually reads (D37).
+   * AUTHORITATIVE, and deliberately not `users.email`. A TalentLens login is
+   * unique per tenant only, and nothing says it is the same address as the
+   * person's calendar — so the account the provider authorised is captured
+   * explicitly at connect time and everything downstream keys off this.
+   */
+  accountIdentifier String @map("account_identifier")
+
+  status CalendarConnectionStatus @default(connected)
+
+  /**
+   * The refresh token, encrypted at the application layer (D36 / D45).
+   * NEVER PLAINTEXT. §24.3 already encrypts RDS with AES-256/KMS, but that
+   * defends against a stolen disk and not against a read of this table, so
+   * the value is sealed by `CalendarCredentialCipher` before it arrives here
+   * and is opened only inside the provider boundary.
+   * Nullable because a disconnected connection holds no credential: entering
+   * that state clears this column rather than leaving a dead secret at rest.
+   * There is deliberately NO access-token column — access tokens are
+   * short-lived runtime values and are never persisted.
+   */
+  encryptedRefreshToken String? @map("encrypted_refresh_token")
+
+  /**
+   * When the stored credential stops being usable, as reported by the
+   * provider. Nullable: not every provider states one, and a connection is
+   * not invalid merely because this is unknown.
+   */
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  /// When the connection last left the `connected` state, for AD-06-style reads.
+  disconnectedAt DateTime? @map("disconnected_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user Users @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /**
+   * One connection per user per provider (D34).
+   * Re-authorising the same provider REPLACES the stored credential rather
+   * than accumulating rows, so there is never ambiguity about which token the
+   * adapter should use. A user may hold one Google and one Microsoft
+   * connection at once, which D35 requires.
+   */
+  @@unique([userId, provider])
+  @@index([userId])
+  @@map("calendar_connections")
 }

@@ -7,6 +7,8 @@ import {
 import { Prisma, UserRole, type Users } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RefreshTokenStore } from '../auth/refresh-token.store';
+import { CalendarConnectionsService } from '../calendar/calendar-connections.service';
+import type { CalendarConnection } from '@prisma/client';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
 import type { ChangeRoleDto, CreateUserDto, ListUsersQueryDto } from './dto/admin-user.dto';
 
@@ -15,6 +17,14 @@ const DEFAULT_PAGE_SIZE = 25;
 export interface RevocationResult {
   revokedCount: number;
   revokedAt: Date;
+  /**
+   * FR6.1 D45 — calendar connections dropped alongside the sessions.
+   *
+   * Returned so the controller can write one `calendar.disconnected` per
+   * connection with the acting administrator as the actor, and none when the
+   * user held none.
+   */
+  disconnectedCalendars: CalendarConnection[];
 }
 
 @Injectable()
@@ -22,6 +32,7 @@ export class AdminUsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessions: RefreshTokenStore,
+    private readonly calendars: CalendarConnectionsService,
   ) {}
 
   /** Gap 5 — every refusal is scoped to the caller's tenant. */
@@ -147,7 +158,21 @@ export class AdminUsersService {
     const user = await this.findInTenant(admin, userId);
     const revokedCount = await this.sessions.revokeAll(user.id);
 
-    return { revokedCount, revokedAt: new Date() };
+    /*
+     * FR6.1 D45 extends FR8.4 beyond §24.1's "all refresh tokens for a user".
+     *
+     * AD-06 exists for "immediate offboarding", and a calendar grant that
+     * outlives the revocation defeats exactly that: the departing user's
+     * calendar would stay readable by this system. Local invalidation only in
+     * this phase — telling Google or Microsoft to revoke their side needs the
+     * provider adapter, which is not built.
+     *
+     * Ordered after the session revocation so a failure here cannot leave
+     * sessions alive, which is the more urgent half.
+     */
+    const disconnectedCalendars = await this.calendars.disconnectAllForUser(user.id);
+
+    return { revokedCount, revokedAt: new Date(), disconnectedCalendars };
   }
 
   /** Live refresh-token count, for AD-06's session list. */
