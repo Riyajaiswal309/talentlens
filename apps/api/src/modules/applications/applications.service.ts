@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   type Application,
+  type ApplicationSource,
   type Candidate,
   type Job,
   JobStatus,
@@ -165,6 +166,9 @@ export class ApplicationsService {
             jobId: job.id,
             candidateId: candidate.id,
             currentStage: firstStage.name,
+            // FR7.3. Undefined when the candidate did not answer, which
+            // stores NULL — "not recorded", distinct from `other`.
+            source: dto.source,
           },
         });
 
@@ -266,6 +270,43 @@ export class ApplicationsService {
 
     if (!application) throw new NotFoundException();
     return application;
+  }
+
+  /**
+   * PATCH /v1/applications/:id/source — FR7.3 correction (amendment B7).
+   *
+   * Recruiter and Administrator only; the controller's @Roles enforces that,
+   * and the tenant scope here is unconditional because neither role may reach
+   * outside their own company. A candidate never reaches this method at all —
+   * unlike `findOne`, there is no self-access branch, because attribution is
+   * the hiring team's record of how someone arrived rather than the
+   * candidate's own data (D33).
+   *
+   * Refusal is 404, never 403 (BR-06, PRD §26).
+   *
+   * Returns the previous value alongside the new one so the controller can
+   * hand both to the audit interceptor: a correction changes a reported
+   * business metric, and "was job_board, now referral" is the whole point of
+   * the record.
+   */
+  async updateSource(
+    user: AuthenticatedUser,
+    id: string,
+    source: ApplicationSource,
+  ): Promise<{ application: Application; previousSource: ApplicationSource | null }> {
+    const existing = await this.prisma.application.findFirst({
+      where: { id, job: { companyId: user.companyId } },
+      select: { id: true, source: true },
+    });
+
+    if (!existing) throw new NotFoundException();
+
+    const application = await this.prisma.application.update({
+      where: { id: existing.id },
+      data: { source },
+    });
+
+    return { application, previousSource: existing.source };
   }
 
   /**

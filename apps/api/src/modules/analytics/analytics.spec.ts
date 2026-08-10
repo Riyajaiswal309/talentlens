@@ -2,11 +2,11 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import { JobStatus, UserRole } from '@prisma/client';
+import { ApplicationSource, JobStatus, UserRole } from '@prisma/client';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AnalyticsModule } from './analytics.module';
-import type { FunnelStage } from './analytics.service';
+import type { FunnelSource, FunnelStage } from './analytics.service';
 import { ApplicationsModule } from '../applications/applications.module';
 import { ApplicationsService } from '../applications/applications.service';
 import { AuditService } from '../../common/audit/audit.service';
@@ -198,9 +198,10 @@ describe('Analytics funnel (FR7.1, FR7.2)', () => {
       name: string,
       appliedOffset: number,
       transitions: { to: string; atOffset: number }[],
+      source?: ApplicationSource,
     ): Promise<string> {
       const { application } = await applications.submit(
-        { jobId, fullName: name, email: `${name.replace(/\W/g, '')}.${suffix}@test.local` },
+        { jobId, fullName: name, email: `${name.replace(/\W/g, '')}.${suffix}@test.local`, source },
         pdf(),
         CORRELATION,
       );
@@ -248,23 +249,63 @@ describe('Analytics funnel (FR7.1, FR7.2)', () => {
      * Avg Screening stay = (24 + 48) / 2      = 36h
      * Avg Interview stay = 24h
      */
-    await seed(jobA, 'An One', 0, [
-      { to: 'Screening', atOffset: 24 * HOUR },
-      { to: 'Interview', atOffset: 48 * HOUR },
-      { to: 'Hired', atOffset: 72 * HOUR },
-    ]);
-    await seed(jobA, 'An Two', 0, [
-      { to: 'Screening', atOffset: 48 * HOUR },
-      { to: 'Rejected', atOffset: 96 * HOUR },
-    ]);
-    await seed(jobA, 'An Three', 0, [{ to: 'Screening', atOffset: 12 * HOUR }]);
+    /*
+     * FR7.3 sources on the same fixture, chosen so every figure is checkable
+     * by hand:
+     *
+     *   Job A   referral    2 applications, 1 hire  → hireRate 0.5
+     *           job_board   1 application,  0 hires → hireRate 0
+     *           career_site 0 applications          → hireRate null
+     *           other       0 applications          → hireRate null
+     *           notRecorded 1 (An Four answered nothing)
+     *
+     *   Job B   career_site 1 application, 1 hire   → hireRate 1
+     *
+     * Tenant-wide: recorded 4, notRecorded 1, and referral + career_site
+     * hires total 2 — which must equal timeToHire.hiredCount.
+     */
+    await seed(
+      jobA,
+      'An One',
+      0,
+      [
+        { to: 'Screening', atOffset: 24 * HOUR },
+        { to: 'Interview', atOffset: 48 * HOUR },
+        { to: 'Hired', atOffset: 72 * HOUR },
+      ],
+      ApplicationSource.referral,
+    );
+    await seed(
+      jobA,
+      'An Two',
+      0,
+      [
+        { to: 'Screening', atOffset: 48 * HOUR },
+        { to: 'Rejected', atOffset: 96 * HOUR },
+      ],
+      ApplicationSource.referral,
+    );
+    await seed(
+      jobA,
+      'An Three',
+      0,
+      [{ to: 'Screening', atOffset: 12 * HOUR }],
+      ApplicationSource.job_board,
+    );
+    // Deliberately no source — the notRecorded case.
     await seed(jobA, 'An Four', 0, []);
 
     /*
      * Job B — one application, applied 100 days later so a date filter can
      * separate the two jobs cleanly. Hired after 5 days.
      */
-    await seed(jobB, 'An Five', 100 * DAY, [{ to: 'Hired', atOffset: 105 * DAY }]);
+    await seed(
+      jobB,
+      'An Five',
+      100 * DAY,
+      [{ to: 'Hired', atOffset: 105 * DAY }],
+      ApplicationSource.career_site,
+    );
 
     // Another tenant's job — must never appear in company A's funnel.
     await seed(jobOtherTenant, 'An Foreign', 0, [{ to: 'Hired', atOffset: 10 * DAY }]);
@@ -487,23 +528,141 @@ describe('Analytics funnel (FR7.1, FR7.2)', () => {
   });
 
   describe('FR7.3 — source of hire', () => {
-    /**
-     * Deliberately absent. No document defines a source column, a capture
-     * point, a value vocabulary or an attribution rule, and `applications`
-     * has nowhere to record one. A null or zero field would assert a
-     * measurement that was never taken.
-     */
-    it('is not reported, because no source data is specified or stored', async () => {
+    const bySource = (body: { sourceOfHire: { bySource: FunnelSource[] } }, name: string) =>
+      body.sourceOfHire.bySource.find((s) => s.source === name)!;
+
+    it('reports the block alongside the existing funnel fields', async () => {
       const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
 
       expect(Object.keys(body).sort()).toEqual([
         'jobId',
         'range',
+        'sourceOfHire',
         'stages',
         'timeToHire',
         'totalApplications',
       ]);
-      expect(JSON.stringify(body).toLowerCase()).not.toContain('source');
+    });
+
+    it('counts applications and hires per channel, tenant-wide', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      expect(bySource(body, 'referral')).toEqual({
+        source: 'referral',
+        applications: 2,
+        hires: 1,
+        hireRate: 0.5,
+      });
+      expect(bySource(body, 'job_board')).toEqual({
+        source: 'job_board',
+        applications: 1,
+        hires: 0,
+        hireRate: 0,
+      });
+      expect(bySource(body, 'career_site')).toEqual({
+        source: 'career_site',
+        applications: 1,
+        hires: 1,
+        hireRate: 1,
+      });
+    });
+
+    it('lists a channel nobody used with zeros and a null rate, not absence', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      expect(bySource(body, 'other')).toEqual({
+        source: 'other',
+        applications: 0,
+        hires: 0,
+        // Null, not 0 — a rate over an empty denominator is unknown.
+        hireRate: null,
+      });
+    });
+
+    it('reports every approved value and nothing else', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      expect(body.sourceOfHire.bySource.map((s: FunnelSource) => s.source).sort()).toEqual([
+        'career_site',
+        'job_board',
+        'other',
+        'referral',
+      ]);
+    });
+
+    /** D30 — the whole point: a coverage gap must not read as a channel. */
+    it('counts a missing source only in notRecorded, never as `other`', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      expect(body.sourceOfHire.notRecorded).toBe(1);
+      expect(bySource(body, 'other').applications).toBe(0);
+    });
+
+    it('recorded + notRecorded always equals totalApplications', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      expect(body.sourceOfHire.recorded).toBe(4);
+      expect(body.sourceOfHire.notRecorded).toBe(1);
+      expect(body.sourceOfHire.recorded + body.sourceOfHire.notRecorded).toBe(
+        body.totalApplications,
+      );
+    });
+
+    /** D32 — the two hire figures share one definition and cannot diverge. */
+    it('hires across sources agree with timeToHire.hiredCount', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA)).expect(200);
+
+      const totalHires = body.sourceOfHire.bySource.reduce(
+        (sum: number, s: FunnelSource) => sum + s.hires,
+        0,
+      );
+      expect(totalHires).toBe(body.timeToHire.hiredCount);
+      expect(totalHires).toBe(2);
+    });
+
+    it('scopes to one role when jobId is given (FR7.2 + FR7.3)', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA), { jobId: jobA }).expect(200);
+
+      expect(body.sourceOfHire.recorded).toBe(3);
+      expect(body.sourceOfHire.notRecorded).toBe(1);
+      expect(bySource(body, 'referral')).toMatchObject({ applications: 2, hires: 1 });
+      // Job B's career_site application is not in this job's numbers.
+      expect(bySource(body, 'career_site')).toMatchObject({ applications: 0, hireRate: null });
+    });
+
+    it('respects the date filter', async () => {
+      // Only job B's application falls after this cutoff.
+      const { body } = await funnel(await tokenFor(recruiterA), {
+        from: new Date(T0.getTime() + 50 * DAY).toISOString(),
+      }).expect(200);
+
+      expect(body.sourceOfHire.recorded).toBe(1);
+      expect(body.sourceOfHire.notRecorded).toBe(0);
+      expect(bySource(body, 'career_site')).toMatchObject({ applications: 1, hires: 1 });
+      expect(bySource(body, 'referral')).toMatchObject({ applications: 0, hires: 0 });
+    });
+
+    it("never counts another tenant's sources", async () => {
+      const { body } = await funnel(await tokenFor(recruiterB)).expect(200);
+
+      // Company B's single application was seeded without a source.
+      expect(body.sourceOfHire.recorded).toBe(0);
+      expect(body.sourceOfHire.notRecorded).toBe(1);
+      for (const entry of body.sourceOfHire.bySource as FunnelSource[]) {
+        expect(entry.applications).toBe(0);
+      }
+    });
+
+    it('is empty but well-formed when the range holds no applications', async () => {
+      const { body } = await funnel(await tokenFor(recruiterA), {
+        from: '2020-01-01T00:00:00.000Z',
+        to: '2020-12-31T00:00:00.000Z',
+      }).expect(200);
+
+      expect(body.sourceOfHire.recorded).toBe(0);
+      expect(body.sourceOfHire.notRecorded).toBe(0);
+      expect(body.sourceOfHire.bySource).toHaveLength(4);
+      expect(bySource(body, 'referral').hireRate).toBeNull();
     });
   });
 

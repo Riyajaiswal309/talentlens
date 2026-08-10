@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ApplicationSource } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
 import type { FunnelQueryDto } from './dto/funnel-query.dto';
@@ -25,6 +26,27 @@ export interface FunnelStage {
   averageTimeInStageHours: number | null;
 }
 
+/** FR7.3 — one channel's contribution. */
+export interface FunnelSource {
+  source: ApplicationSource;
+  applications: number;
+  hires: number;
+  /** hires / applications. Null when the channel produced no applications. */
+  hireRate: number | null;
+}
+
+/**
+ * FR7.3 — source of hire.
+ *
+ * `recorded` + `notRecorded` always equals `totalApplications`, so a reader
+ * can see the coverage of the measurement at the same time as its result.
+ */
+export interface FunnelSourceOfHire {
+  recorded: number;
+  notRecorded: number;
+  bySource: FunnelSource[];
+}
+
 export interface FunnelReport {
   range: { from: string | null; to: string | null };
   jobId: string | null;
@@ -32,6 +54,8 @@ export interface FunnelReport {
   stages: FunnelStage[];
   /** FR7.2. Null when nobody in range has been hired. */
   timeToHire: { hiredCount: number; averageDays: number; medianDays: number } | null;
+  /** FR7.3. Always present; `bySource` lists every value, including zeros. */
+  sourceOfHire: FunnelSourceOfHire;
 }
 
 /**
@@ -101,6 +125,7 @@ export class AnalyticsService {
         id: true,
         currentStage: true,
         appliedAt: true,
+        source: true,
         stageHistory: {
           select: { fromStage: true, toStage: true, changedAt: true },
           orderBy: { changedAt: 'asc' },
@@ -109,6 +134,23 @@ export class AnalyticsService {
     });
 
     const total = applications.length;
+
+    /*
+     * FR7.3. Every value is seeded at zero so a channel that produced nothing
+     * is visibly barren rather than absent — the same treatment a stage nobody
+     * reached already gets.
+     *
+     * NULL is counted in `notRecorded` alone and never enters these maps.
+     * Folding it into `other` would let a data-coverage problem read as a
+     * finding about a channel (D30).
+     */
+    const applicationsBySource = new Map<ApplicationSource, number>();
+    const hiresBySource = new Map<ApplicationSource, number>();
+    for (const value of Object.values(ApplicationSource)) {
+      applicationsBySource.set(value, 0);
+      hiresBySource.set(value, 0);
+    }
+    let notRecorded = 0;
 
     // name -> applications that were ever there / are there now
     const reached = new Map<string, number>();
@@ -119,6 +161,26 @@ export class AnalyticsService {
 
     for (const application of applications) {
       const visited = new Set<string>();
+
+      // FR7.3 — the denominator. NULL never enters `bySource` (D30).
+      if (application.source === null) {
+        notRecorded += 1;
+      } else {
+        applicationsBySource.set(
+          application.source,
+          (applicationsBySource.get(application.source) ?? 0) + 1,
+        );
+      }
+      /*
+       * Counted once per application, not once per transition into Hired.
+       * `timeToHire` pushes a duration per transition because it averages
+       * durations; `hires` is the numerator of a rate against `applications`,
+       * so an application that somehow re-entered Hired must not make
+       * `hireRate` exceed 1. The rule for what counts as a hire is identical —
+       * a transition into the Hired stage — so for the ordinary case of one
+       * hire per application the two figures agree exactly.
+       */
+      let everHired = false;
 
       /*
        * An application's first stage has no `stage_history` row — history is
@@ -146,6 +208,7 @@ export class AnalyticsService {
 
         if (transition.toStage === HIRED_STAGE) {
           timeToHire.push(transition.changedAt.getTime() - application.appliedAt.getTime());
+          everHired = true;
         }
 
         stayStage = transition.toStage;
@@ -158,6 +221,10 @@ export class AnalyticsService {
        * would drag every still-active stage's figure downward and make a
        * bottleneck look faster the longer candidates sit in it.
        */
+
+      if (everHired && application.source !== null) {
+        hiresBySource.set(application.source, (hiresBySource.get(application.source) ?? 0) + 1);
+      }
 
       visited.add(application.currentStage);
       for (const name of visited) {
@@ -189,6 +256,23 @@ export class AnalyticsService {
       jobId: query.jobId ?? null,
       totalApplications: total,
       stages: rows,
+      sourceOfHire: {
+        recorded: total - notRecorded,
+        notRecorded,
+        bySource: Object.values(ApplicationSource).map((source) => {
+          const applicationCount = applicationsBySource.get(source) ?? 0;
+          const hireCount = hiresBySource.get(source) ?? 0;
+          return {
+            source,
+            applications: applicationCount,
+            hires: hireCount,
+            // Null, not 0, when the channel produced nothing — a rate over an
+            // empty denominator is unknown rather than zero, the same rule
+            // `conversionFromPrevious` follows.
+            hireRate: applicationCount === 0 ? null : round(hireCount / applicationCount, 4),
+          };
+        }),
+      },
       timeToHire:
         timeToHire.length === 0
           ? null

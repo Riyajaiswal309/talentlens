@@ -1,0 +1,44 @@
+-- FR7.3 — source of hire (approved 10 Aug 2026).
+--
+-- PRD §11.7 requires source-of-hire "tracked and reported", but no document
+-- defined a column, a capture point, a value vocabulary or an attribution
+-- rule, so the requirement was unimplementable as written. The approved
+-- decision fixes a closed four-value vocabulary and one capture point; this
+-- migration is the storage half of it.
+--
+-- ApplicationSource   Four values, closed. Three are anchored in the authoring
+--                     brief's "Candidate data sources (direct upload, job
+--                     board integrations, referrals)"; `career_site` renames
+--                     "direct upload", which names an ingestion mechanism
+--                     rather than a channel. `other` is the residual. An enum
+--                     rather than text: free text on an unauthenticated
+--                     endpoint is an unbounded PII surface and would make the
+--                     analytics dimension uncountable.
+--
+-- applications.source On `applications`, not `candidates` — decision D1 gives
+--                     every submission its own candidate row, so one person
+--                     applying twice through two channels would be ambiguous
+--                     at candidate level; and BR-05 erasure retains
+--                     applications while detaching candidate PII, so
+--                     attribution stored here survives an erasure and the
+--                     funnel stays correct afterwards.
+--
+-- NULLABLE, AND NO BACKFILL. NULL means "not recorded", which is true of every
+-- existing row and of any submission where the candidate declined to answer.
+-- Assigning a source to historical applications would fabricate attribution
+-- for the exact metric this column exists to measure honestly. The funnel
+-- reports these as `notRecorded` and never folds them into `other`.
+--
+-- No index: the funnel already loads the in-range application rows and
+-- aggregates them in memory, so an index would serve a query that does not
+-- exist.
+--
+-- No GRANT block: this adds a column to `applications`, which already holds
+-- its grant from the M2.2 migration. The standing rule in A10 applies to new
+-- TABLES, and no table is created here.
+
+-- CreateEnum
+CREATE TYPE "ApplicationSource" AS ENUM ('job_board', 'referral', 'career_site', 'other');
+
+-- AlterTable
+ALTER TABLE "applications" ADD COLUMN     "source" "ApplicationSource";

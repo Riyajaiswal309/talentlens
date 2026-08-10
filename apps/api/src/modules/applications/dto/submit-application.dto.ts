@@ -1,4 +1,16 @@
-import { IsEmail, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { ApplicationSource } from '@prisma/client';
+import {
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
+
+/** The four approved FR7.3 values, for the 400 message. */
+const SOURCE_VALUES = Object.values(ApplicationSource).join(', ');
 
 /**
  * FR2.1 — public candidate application.
@@ -24,4 +36,17 @@ export class SubmitApplicationDto {
   @IsString()
   @MaxLength(40)
   phone?: string;
+
+  /**
+   * FR7.3 — how the candidate reached this role (Phase 1 CA-02, amended).
+   *
+   * OPTIONAL, because FR2.1 intake must not be made harder to complete: an
+   * omitted value stores NULL and is reported as `notRecorded`, never as
+   * `other`. A value outside the closed four is a 400 rather than stored
+   * text, which is what makes the analytics dimension countable — the same
+   * allow-list enforcement BR-07 uses for model features.
+   */
+  @IsOptional()
+  @IsEnum(ApplicationSource, { message: `source must be one of: ${SOURCE_VALUES}` })
+  source?: ApplicationSource;
 }

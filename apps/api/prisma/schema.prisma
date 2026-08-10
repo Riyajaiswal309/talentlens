@@ -70,6 +70,30 @@ enum ParseStatus {
 }
 
 /**
+ * How a candidate reached the role (FR7.3, "source-of-hire is tracked and
+ * reported").
+ *
+ * A CLOSED four-value set, approved 10 Aug 2026. Three are anchored in the
+ * authoring brief's "Candidate data sources (direct upload, job board
+ * integrations, referrals)"; `career_site` renames "direct upload", which
+ * names an ingestion mechanism rather than a channel, and matches the public
+ * board this system already serves at GET /v1/public/jobs. `other` is the
+ * residual.
+ *
+ * An enum rather than free text: on an unauthenticated endpoint free text is
+ * an unbounded PII surface — candidates type a referrer's name into it — and
+ * it would make the analytics dimension uncountable (D27, D28).
+ *
+ * Widening this later is an additive migration and invalidates no stored row.
+ */
+enum ApplicationSource {
+  job_board
+  referral
+  career_site
+  other
+}
+
+/**
  * Interview lifecycle (FR6.1–FR6.3).
  *
  * Three states, each named by an existing document rather than designed here.
@@ -296,6 +320,22 @@ model Application {
   /// PRD §17.2 models this column as a value, matching stage_history.
   currentStage String   @map("current_stage")
   appliedAt    DateTime @default(now()) @map("applied_at") @db.Timestamptz(6)
+
+  /**
+   * FR7.3 — the channel this application arrived through.
+   *
+   * On `applications`, not `candidates`: decision D1 gives every submission
+   * its own candidate row, so one person applying to two roles through two
+   * channels would be ambiguous at candidate level. BR-05 erasure also
+   * retains applications while detaching candidate PII, so attribution stored
+   * here survives an erasure and the funnel stays correct afterwards.
+   *
+   * Nullable, and NULL is a real state rather than a defect: it means "not
+   * recorded", which is true of every row written before this column existed
+   * and of any submission where the candidate declined to answer. The funnel
+   * reports it as `notRecorded` and never folds it into `other` (D30).
+   */
+  source ApplicationSource?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

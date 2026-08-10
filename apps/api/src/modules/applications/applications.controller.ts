@@ -9,6 +9,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -34,6 +35,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import type { RequestContext } from '../../common/types/authenticated-request';
 import { ApplicationsService, toApplicationAuditSnapshot } from './applications.service';
 import { SubmitApplicationDto } from './dto/submit-application.dto';
+import { UpdateApplicationSourceDto } from './dto/update-application-source.dto';
 
 /** Phase 1 CA-04 — confirmation payload. */
 interface SubmissionResponse {
@@ -88,11 +90,35 @@ interface ApplicationDetailResponse {
    * separate request process, not this field.
    */
   score: WireScore | null;
+  /**
+   * FR7.3 — how this application arrived.
+   *
+   * ALWAYS null for a CANDIDATE caller, following the same rule as `score`
+   * (D33, D11): attribution is the hiring team's record of a channel, not
+   * data belonging to the person it describes, and §24.2 grants candidates no
+   * visibility of it. Null therefore means either "withheld from you" or
+   * "not recorded" depending on who is asking — a distinction the candidate
+   * is deliberately not given the means to make.
+   */
+  source: string | null;
+}
+
+/**
+ * The source a given caller may see (FR7.3, D33).
+ *
+ * Withheld at the boundary rather than filtered out of a payload that briefly
+ * held it, matching how `findOne` declines to even fetch a score for a
+ * candidate.
+ */
+function sourceFor(user: AuthenticatedUser, application: ApplicationDetail): string | null {
+  if (user.role === UserRole.CANDIDATE) return null;
+  return application.source;
 }
 
 function toDetailResponse(
   application: ApplicationDetail,
   score: WireScore | null,
+  source: string | null,
 ): ApplicationDetailResponse {
   return {
     id: application.id,
@@ -120,6 +146,7 @@ function toDetailResponse(
         }
       : null,
     score,
+    source,
   };
 }
 
@@ -381,6 +408,49 @@ export class ApplicationsController {
     const score =
       user.role === UserRole.CANDIDATE ? null : toWireScore(await this.ai.getScore(application.id));
 
-    return toDetailResponse(application, score);
+    return toDetailResponse(application, score, sourceFor(user, application));
+  }
+
+  /**
+   * PATCH /v1/applications/:id/source — FR7.3 correction (amendment B7).
+   *
+   * NOT IN PRD §23.2. FR7.3 requires source "tracked and reported", and
+   * without a correction path the only attribution ever recorded is what an
+   * anonymous stranger selected on a public form — which defeats the
+   * requirement for precisely the population it exists to measure, since a
+   * recruiter usually learns the real channel during the first conversation.
+   *
+   * Recruiter and Admin. HIRING MANAGER IS EXCLUDED: §24.2 scopes them to
+   * assessment, not to maintaining the hiring record. A candidate cannot
+   * reach it at all — they have no write access to their application after
+   * submission, and attribution is not their data (D33).
+   *
+   * AUDITED, unlike the initial capture. A source supplied at submission is
+   * already inside `application.submitted`'s snapshot; a later change alters
+   * a reported business metric, which is what PRD §17.3 exists to record. The
+   * before/after states carry both values, so the audit answers "who changed
+   * it, from what, to what" without a bespoke payload.
+   */
+  @Patch(':id/source')
+  @Roles(UserRole.RECRUITER, UserRole.ADMIN)
+  @Audit({ action: 'application.source_changed', resourceType: 'application' })
+  async updateSource(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateApplicationSourceDto,
+    @Req() req: RequestContext,
+  ): Promise<{ id: string; source: string }> {
+    const { application, previousSource } = await this.applications.updateSource(
+      user,
+      id,
+      dto.source,
+    );
+
+    req.auditState = {
+      before: { applicationId: application.id, source: previousSource },
+      after: { applicationId: application.id, source: application.source },
+    };
+
+    return { id: application.id, source: application.source! };
   }
 }

@@ -35,6 +35,10 @@ export const AUDIT_ACTIONS = [
   // Phase 3 integration.
   'job.ranking_weights_changed',
   'parsed_profile.corrected',
+  // FR7.3 — a correction to source-of-hire. The initial capture rides inside
+  // `application.submitted`; this records a later change, which alters a
+  // reported business metric (amendment C3).
+  'application.source_changed',
   'admin.ai_scoring_changed',
   'admin.role_changed',
   'admin.user_invited',
