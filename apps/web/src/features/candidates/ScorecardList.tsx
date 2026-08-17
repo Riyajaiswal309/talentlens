@@ -1,20 +1,22 @@
 import { ErrorState } from '../../components/ErrorState';
 import { SkeletonText } from '../../components/Skeleton';
 import { formatRole, type ScorecardResponse } from './useApplication';
-
-/** `create-scorecard.dto.ts` — approved 9 Aug 2026, since HM-04 set no bounds. */
-const MAX_RATING = 5;
+import { ScorecardForm } from './ScorecardForm';
+import { MAX_RATING } from './useScorecardMutation';
 
 /**
- * The scorecards panel on RC-06 (§7.3 right column; FR5.3).
+ * The scorecards panel on RC-06 (§7.3 right column; FR5.3, RC-13).
  *
- * READ-ONLY HERE. Submitting one is HM-04, the Hiring Manager's screen, and
- * `POST /v1/applications/:id/scorecards` is not wired in: RC-06 shows the team's
- * feedback rather than collecting it.
+ * READS THE TEAM'S FEEDBACK AND COLLECTS THE CALLER'S. The composer lives here
+ * rather than on its own screen for the same reason the comment thread does:
+ * `POST /v1/applications/:id/scorecards` admits Recruiter as well as Hiring
+ * Manager, and a rating is only meaningful beside the ones already submitted.
  */
 export function ScorecardList({
+  applicationId,
   query,
 }: {
+  applicationId: string | undefined;
   query: {
     isPending: boolean;
     isError: boolean;
@@ -83,6 +85,13 @@ export function ScorecardList({
           ))}
         </ul>
       )}
+
+      {/*
+        RC-13. Rendered even while the list is loading or failed: the caller's
+        ability to record their own assessment does not depend on being able to
+        read everyone else's.
+      */}
+      <ScorecardForm applicationId={applicationId} />
     </section>
   );
 }

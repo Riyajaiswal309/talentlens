@@ -138,7 +138,7 @@ export function CandidateDetailPage() {
         </div>
 
         <div className="space-y-4">
-          <ScorecardList query={scorecards} />
+          <ScorecardList applicationId={applicationId} query={scorecards} />
           <InterviewPanel query={interviews} />
         </div>
       </div>
