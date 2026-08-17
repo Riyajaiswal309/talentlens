@@ -10,6 +10,7 @@ import { JobEditPage } from './features/jobs/JobEditPage';
 import { CandidateListPage } from './features/candidates/CandidateListPage';
 import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
 import { FunnelPage } from './features/analytics/FunnelPage';
+import { PipelineBoard } from './features/pipeline/PipelineBoard';
 
 /**
  * Route table.
@@ -45,6 +46,8 @@ export function App() {
             <Route path="/jobs/:jobId" element={<JobDetailPage />} />
             <Route path="/jobs/:jobId/edit" element={<JobEditPage />} />
             <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
+            {/* RC-09. A tab of the job hub, so it sits under the job's path. */}
+            <Route path="/jobs/:jobId/pipeline" element={<PipelineBoard />} />
             {/*
               The parameter is an APPLICATION id, not a person's id: the record
               being read is one candidate's application to THIS job. Named for

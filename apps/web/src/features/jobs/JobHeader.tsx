@@ -15,6 +15,9 @@ import type { JobResponse } from './useJobs';
  * title. Registering it here is what turns `Jobs › 00000000` into
  * `Jobs › Senior Backend Engineer` (§4.1).
  */
+/** The tabs that lead somewhere. `Settings` is still unbuilt. */
+export type JobTab = 'overview' | 'candidates' | 'pipeline';
+
 export function JobHeader({
   job,
   loading,
@@ -22,7 +25,7 @@ export function JobHeader({
 }: {
   job: JobResponse | undefined;
   loading: boolean;
-  activeTab: 'overview' | 'candidates';
+  activeTab: JobTab;
 }) {
   useBreadcrumbLabel(job?.id, job?.title);
 
@@ -72,13 +75,13 @@ export function JobHeader({
 }
 
 /**
- * Candidates / Pipeline / Settings (Table 5.1).
+ * Overview / Candidates / Pipeline / Settings (Table 5.1).
  *
- * Only Candidates leads anywhere. Pipeline is RC-09 and Settings carries the
- * read-only AI status — both outside the agreed scope, so they render as
- * disabled rather than as links to a route that does not exist.
+ * Settings is the only one still unbuilt — it carries the read-only AI-scoring
+ * status (BR-04) and nothing else is specified for it — so it stays a disabled
+ * span rather than a link to a route that does not exist.
  */
-function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: 'overview' | 'candidates' }) {
+function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: JobTab }) {
   const base = 'border-b-2 px-1 pb-2 text-sm font-semibold';
 
   return (
@@ -112,9 +115,17 @@ function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: 'overview' | 
           </NavLink>
         </li>
         <li>
-          <span aria-disabled="true" className={`${base} border-transparent text-neutral-300`}>
-            Pipeline <span className="text-xs uppercase">Later</span>
-          </span>
+          <NavLink
+            to={`/jobs/${jobId}/pipeline`}
+            aria-current={activeTab === 'pipeline' ? 'page' : undefined}
+            className={`${base} ${
+              activeTab === 'pipeline'
+                ? 'border-primary-700 text-primary-700'
+                : 'border-transparent text-neutral-700 hover:text-neutral-900'
+            }`}
+          >
+            Pipeline
+          </NavLink>
         </li>
         <li>
           <span aria-disabled="true" className={`${base} border-transparent text-neutral-300`}>
