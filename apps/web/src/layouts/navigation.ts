@@ -25,5 +25,5 @@ export const RECRUITER_NAVIGATION: readonly NavigationItem[] = [
   { code: 'RC-02', label: 'Jobs', to: '/jobs', matchPrefix: '/jobs' },
   { code: 'RC-14', label: 'Review queue' },
   { code: 'RC-11', label: 'Interviews' },
-  { code: 'RC-12', label: 'Analytics' },
+  { code: 'RC-12', label: 'Analytics', to: '/analytics', matchPrefix: '/analytics' },
 ];

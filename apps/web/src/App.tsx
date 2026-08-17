@@ -9,6 +9,7 @@ import { JobCreatePage } from './features/jobs/JobCreatePage';
 import { JobEditPage } from './features/jobs/JobEditPage';
 import { CandidateListPage } from './features/candidates/CandidateListPage';
 import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
+import { FunnelPage } from './features/analytics/FunnelPage';
 
 /**
  * Route table.
@@ -53,6 +54,11 @@ export function App() {
               path="/jobs/:jobId/candidates/:applicationId"
               element={<CandidateDetailPage />}
             />
+
+            {/* RC-12. Tenant-wide, so it sits beside /jobs rather than under a
+                job — the funnel is not scoped to one requisition unless the
+                caller filters it to one. */}
+            <Route path="/analytics" element={<FunnelPage />} />
           </Route>
         </Route>
       </Route>
