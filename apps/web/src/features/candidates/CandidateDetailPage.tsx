@@ -83,8 +83,15 @@ export function CandidateDetailPage() {
    * same on screen but mean different things, and the recruiter needs the
    * reason: scoring switched off for this job, versus a job that expects a
    * score and did not get one.
+   *
+   * THREE STATES, NOT TWO. The job is a separate request from the application,
+   * so on a cold deep link there is a window where the flag is not known yet.
+   * Defaulting that window to "enabled" made the panel read "No score is
+   * available" — which claims the scorer ran and returned nothing — before
+   * flipping to "AI scoring is disabled". `undefined` keeps the unknown
+   * distinct so the panel can wait instead of guessing.
    */
-  const aiDisabled = job.data ? !job.data.aiScoringEnabled : false;
+  const aiScoringEnabled: boolean | undefined = job.data?.aiScoringEnabled;
 
   return (
     <div>
@@ -121,7 +128,11 @@ export function CandidateDetailPage() {
         {/* §7.3 puts the assessment left and the collaboration right; with no
             parsed profile to show, the left column carries what does exist. */}
         <div className="space-y-4 lg:col-span-2">
-          <ScorePanel score={detail.score} aiDisabled={aiDisabled} />
+          <ScorePanel
+            score={detail.score}
+            aiScoringEnabled={aiScoringEnabled}
+            jobLoading={job.isPending}
+          />
           <ApplicationFacts detail={detail} />
           <CommentThread applicationId={applicationId} query={comments} />
         </div>
@@ -141,8 +152,41 @@ export function CandidateDetailPage() {
  * The rationale is never optional: `WireScore` requires it, so the UI cannot
  * render a number without the reason for it even by accident.
  */
-function ScorePanel({ score, aiDisabled }: { score: WireScore | null; aiDisabled: boolean }) {
-  if (aiDisabled) {
+function ScorePanel({
+  score,
+  aiScoringEnabled,
+  jobLoading,
+}: {
+  score: WireScore | null;
+  /** `undefined` until the job's flag is known. */
+  aiScoringEnabled: boolean | undefined;
+  jobLoading: boolean;
+}) {
+  /*
+   * WAIT RATHER THAN GUESS. Until the job answers, neither "disabled" nor "no
+   * score" can be asserted, and picking either shows the recruiter a claim that
+   * is then retracted. The skeleton occupies the same panel so nothing shifts
+   * when the real state arrives.
+   */
+  if (jobLoading) {
+    return (
+      <section
+        className="rounded-md border border-neutral-300 bg-neutral-0 p-4"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <span className="sr-only">Loading score status…</span>
+        <Skeleton className="h-[20px] w-40" />
+        <div className="mt-3">
+          <SkeletonText lines={2} />
+        </div>
+      </section>
+    );
+  }
+
+  // Only a definitive `false` is FR4.5's disabled state.
+  if (aiScoringEnabled === false) {
     return (
       // §8.2 assigns info/700 to AI-disabled notices. Not a warning: nothing is
       // wrong, the feature is switched off for this job.

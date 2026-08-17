@@ -1,7 +1,7 @@
 import { Link, useParams } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
-import { LoadingState, SkeletonTable } from '../../components/Skeleton';
+import { LoadingState, Skeleton, SkeletonTable } from '../../components/Skeleton';
 import { JobHeader } from '../jobs/JobHeader';
 import { useJob } from '../jobs/useJobs';
 import {
@@ -40,8 +40,15 @@ export function CandidateListPage() {
    * contain no scores would look identical, but the reason differs and so does
    * the message a recruiter needs — "switched off for this job" versus "the
    * scorer did not answer".
+   *
+   * THREE STATES, NOT TWO. The job is a separate request from the rows, so on a
+   * cold deep link the flag is briefly unknown. Defaulting that window to
+   * "enabled" showed a score column that then vanished — the exact thing §7.2
+   * forbids by requiring the column removed rather than greyed. `undefined`
+   * keeps the unknown distinct, and the column stays out until the flag says
+   * otherwise.
    */
-  const aiDisabled = jobQuery.data ? !jobQuery.data.aiScoringEnabled : false;
+  const aiScoringEnabled: boolean | undefined = jobQuery.data?.aiScoringEnabled;
   const rows = candidates.data?.pages.flatMap((page) => page.data) ?? [];
 
   return (
@@ -67,14 +74,30 @@ export function CandidateListPage() {
         is §8.2's designated colour for an AI-disabled notice — deliberately
         not a warning: nothing is wrong, the feature is off.
       */}
-      {aiDisabled && (
-        <p className="mb-4 rounded-sm border border-info-700 bg-neutral-0 px-3 py-2 text-sm text-info-700">
-          AI scoring is disabled for this job by your administrator. Candidates are listed newest
-          first, with no score.
-        </p>
+      {jobQuery.isPending ? (
+        // Holds the banner's place so the list below does not jump when the
+        // flag arrives; announced, because the wait is otherwise silent.
+        <div className="mb-4" role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Checking whether AI scoring is enabled…</span>
+          <Skeleton className="h-[38px] w-full" />
+        </div>
+      ) : (
+        // Only a definitive `false` is FR4.5's disabled state.
+        aiScoringEnabled === false && (
+          <p className="mb-4 rounded-sm border border-info-700 bg-neutral-0 px-3 py-2 text-sm text-info-700">
+            AI scoring is disabled for this job by your administrator. Candidates are listed newest
+            first, with no score.
+          </p>
+        )
       )}
 
-      <CandidateListBody query={candidates} rows={rows} jobId={jobId} showScore={!aiDisabled} />
+      {/* The score column appears only once the job has SAID it is scored. */}
+      <CandidateListBody
+        query={candidates}
+        rows={rows}
+        jobId={jobId}
+        showScore={aiScoringEnabled === true}
+      />
     </div>
   );
 }
