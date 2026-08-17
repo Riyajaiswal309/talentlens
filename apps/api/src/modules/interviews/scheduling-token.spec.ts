@@ -161,6 +161,7 @@ describe('ManualCalendarProvider (FR6.3)', () => {
       endsAt: new Date(),
       timezone: 'Europe/London',
       interviewerEmails: [],
+      interviewerUserIds: [],
     });
 
     expect(event).toBeNull();

@@ -12,7 +12,19 @@ export interface CalendarBooking {
   startsAt: Date;
   endsAt: Date;
   timezone: string;
+  /**
+   * Attendee addresses (D41 — interviewers only; the candidate is never
+   * invited). These address the invitation; they are NOT an identity claim.
+   */
   interviewerEmails: string[];
+  /**
+   * The same panel by `user_id` (D39).
+   *
+   * Needed to find whose calendar hosts the event: a connection belongs to a
+   * user (D34), and `users.email` is only tenant-unique so it cannot be used
+   * to look one up.
+   */
+  interviewerUserIds: string[];
 }
 
 /** A window of time an interviewer is already committed. */
@@ -42,11 +54,12 @@ export interface InterviewerAvailability {
  * `NotificationTransport` and `AiScoringPort` — the same seam this codebase
  * uses everywhere a real integration is specified but not yet available.
  *
- * FR6.1 names Google and Microsoft Outlook. Neither is built here: an OAuth
- * client registration, tenant-level connection storage and a consent flow are
- * required for both, and no document specifies any of them. What FR6.1 needs
- * from the rest of the system is a seam it can be bound into later, in one
- * place, without the scheduling logic changing.
+ * FR6.1 names Google and Microsoft Outlook, and D35 puts both in v1 scope.
+ * NEITHER APPEARS IN THIS FILE, deliberately: the adapters, the consent flow
+ * and the connection storage all live in `CalendarModule`, which binds this
+ * token to `ConnectedCalendarProvider`. Scheduling code sees only the three
+ * methods below, so it reads identically whichever provider an interviewer
+ * connected — the one job D35 gives this seam.
  *
  * FR6.3 is the reason `isAvailable` exists as a separate question from
  * `createEvent`: "if the calendar provider is unavailable, the system degrades
@@ -83,15 +96,15 @@ export abstract class CalendarProvider {
    * caller to the manual path FR6.3 already defines, alongside the empty state
    * flow 8 specifies ("No availability in range → widen-range prompt").
    *
-   * NO ROUTE CALLS THIS YET. §23.2 specifies no availability endpoint, and
-   * Phase 1's own Table 12.3 gap list omits one despite RC-11 needing it
-   * (recorded as E3). The seam exists so the shape is settled and a provider
-   * can be bound in one place; it does not make FR6.1 complete, which still
-   * needs an ownership model, an OAuth contract, token storage and a consent
-   * flow that no document specifies (section F).
+   * IDENTITY IN IS `user_id`, IDENTITY OUT IS THE PROVIDER ACCOUNT. D42 fixes
+   * the endpoint's input as user ids and D39 makes `user_id` the persisted
+   * identity, while the returned `email` is the `account_identifier` the
+   * provider authorised (D37) — the only address it knows the person by.
+   *
+   * Served by `GET /v1/interviews/availability` (D42, B8).
    */
   abstract getAvailability(
-    interviewerEmails: string[],
+    interviewerUserIds: string[],
     window: { from: Date; to: Date },
   ): Promise<InterviewerAvailability[] | null>;
 }
@@ -143,7 +156,7 @@ export class ManualCalendarProvider extends CalendarProvider {
     // the abstract token — an override with fewer parameters compiles, but
     // then code holding a ManualCalendarProvider could not pass the arguments
     // the contract documents.
-    _interviewerEmails: string[],
+    _interviewerUserIds: string[],
     _window: { from: Date; to: Date },
   ): Promise<InterviewerAvailability[] | null> {
     return null;

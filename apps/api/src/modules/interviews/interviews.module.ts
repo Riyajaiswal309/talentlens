@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CalendarProvider, ManualCalendarProvider } from './calendar.provider';
+import { CalendarModule } from '../calendar/calendar.module';
+import { AvailabilityController } from './availability.controller';
 import { InterviewsController } from './interviews.controller';
 import { InterviewsService } from './interviews.service';
 import { SchedulingController } from './scheduling.controller';
@@ -17,20 +18,15 @@ import { SchedulingTokenService } from './scheduling-token.service';
  * table — splitting them would put the issuing of a credential in a different
  * module from its verification, which is exactly where those two drift apart.
  *
- * THE CALENDAR BINDING HAPPENS IN ONE PLACE, here, matching how
- * `ResumeScanner` and `AiScoringPort` are bound. FR6.1's Google and Outlook
- * integrations replace this single line; no scheduling logic changes with
- * them, because every caller already asks `isAvailable()` first and tolerates
- * a null event (FR6.3).
+ * THE CALENDAR SEAM NOW COMES FROM `CalendarModule`, which binds it to the
+ * per-interviewer router and owns both provider adapters (D35). No scheduling
+ * logic changed when the real providers arrived, because every caller already
+ * asked `isAvailable()` first and tolerated a null event (FR6.3).
  */
 @Module({
-  controllers: [InterviewsController, SchedulingController],
-  providers: [
-    InterviewsService,
-    SchedulingService,
-    SchedulingTokenService,
-    { provide: CalendarProvider, useClass: ManualCalendarProvider },
-  ],
+  imports: [CalendarModule],
+  controllers: [InterviewsController, SchedulingController, AvailabilityController],
+  providers: [InterviewsService, SchedulingService, SchedulingTokenService],
   exports: [InterviewsService],
 })
 export class InterviewsModule {}

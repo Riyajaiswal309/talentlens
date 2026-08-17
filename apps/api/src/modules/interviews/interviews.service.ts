@@ -230,6 +230,9 @@ export class InterviewsService {
             endsAt: scheduledAt,
             timezone: dto.timezone!,
             interviewerEmails: interviewers.map((i) => i.email),
+            // D39 — the panel by user_id, so the router can find whose
+            // calendar hosts the event. Emails address the invitation only.
+            interviewerUserIds: interviewers.map((i) => i.id),
           })
           // FR6.3 — a provider that fails mid-call must not fail the booking.
           .catch(() => null)

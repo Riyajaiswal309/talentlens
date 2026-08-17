@@ -67,7 +67,7 @@ export class SchedulingService {
       where: { id: claims.interviewId },
       include: {
         slots: { orderBy: { startsAt: 'asc' } },
-        interviewers: { include: { user: { select: { email: true } } } },
+        interviewers: { include: { user: { select: { id: true, email: true } } } },
         application: {
           select: {
             candidate: { select: { fullName: true } },
@@ -185,6 +185,8 @@ export class SchedulingService {
         endsAt: slot.endsAt,
         timezone: slot.timezone,
         interviewerEmails: interview.interviewers.map((i) => i.user.email),
+        // D39 — the panel by user_id; see the manual path for why.
+        interviewerUserIds: interview.interviewers.map((i) => i.user.id),
       })
       .catch(() => null);
 

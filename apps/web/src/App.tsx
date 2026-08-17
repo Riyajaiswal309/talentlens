@@ -1,42 +1,55 @@
-import { USER_ROLES, DEFAULT_PIPELINE_STAGES } from '@talentlens/shared-types';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from './auth/RequireAuth';
+import { RequireRole } from './auth/RequireRole';
+import { RecruiterLayout } from './layouts/RecruiterLayout';
+import { LoginPage } from './features/auth/LoginPage';
+import { JobListPage } from './features/jobs/JobListPage';
+import { JobDetailPage } from './features/jobs/JobDetailPage';
+import { CandidateListPage } from './features/candidates/CandidateListPage';
+import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
 
 /**
- * M2.1 placeholder shell.
+ * Route table.
  *
- * This is scaffolding only — it exists to prove the toolchain (React, Vite,
- * Tailwind, TypeScript, workspace imports) is wired end to end. Real screens
- * follow the Phase 1 inventory from M2.6 onward and are NOT designed here.
+ * THREE LAYERS, NESTED, IN THIS ORDER. `RequireAuth` establishes that there is
+ * a principal; `RequireRole` asks whether that principal belongs here; only
+ * then does `RecruiterLayout` draw the workspace. The order matters twice
+ * over — asking about a role before knowing there is a user would tell a
+ * signed-out visitor "not available to you" when the honest answer is "sign in
+ * first", and rendering the shell before either check would flash a sidebar at
+ * someone who is about to be redirected away from it.
+ *
+ * The URL hierarchy is §4.1's IA read literally, which is what makes the
+ * breadcrumb derivable from the path alone:
+ *   /jobs → /jobs/:jobId → /jobs/:jobId/candidates → …/:applicationId
  */
 export function App() {
   return (
-    <main className="min-h-screen bg-neutral-100 p-8 font-sans text-neutral-900">
-      <div className="mx-auto max-w-2xl rounded-md border border-neutral-300 bg-neutral-0 p-6 shadow-sm">
-        <h1 className="text-2xl font-semibold">TalentLens</h1>
-        <p className="mt-1 text-sm text-neutral-700">
-          AI-Powered Recruitment &amp; Applicant Tracking System
-        </p>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
 
-        <div className="mt-6 rounded-sm bg-primary-50 p-4 text-sm">
-          <p className="font-semibold text-primary-700">Milestone M2.1 — workspace scaffold</p>
-          <p className="mt-1 text-neutral-700">
-            Toolchain verified. No business features are implemented yet.
-          </p>
-        </div>
+      <Route element={<RequireAuth />}>
+        <Route element={<RequireRole />}>
+          <Route element={<RecruiterLayout />}>
+            <Route path="/jobs" element={<JobListPage />} />
+            <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+            <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
+            {/*
+              The parameter is an APPLICATION id, not a person's id: the record
+              being read is one candidate's application to THIS job. Named for
+              what the URL reads as, documented for what it holds.
+            */}
+            <Route
+              path="/jobs/:jobId/candidates/:applicationId"
+              element={<CandidateDetailPage />}
+            />
+          </Route>
+        </Route>
+      </Route>
 
-        <dl className="mt-6 space-y-3 text-sm">
-          <div>
-            <dt className="font-semibold">Roles (PRD §24.2)</dt>
-            <dd className="text-neutral-700">{USER_ROLES.join(' · ')}</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">Default pipeline stages (PRD §14.1)</dt>
-            <dd className="text-neutral-700">{DEFAULT_PIPELINE_STAGES.join(' → ')}</dd>
-            <dd className="mt-1 text-xs text-neutral-500">
-              Defaults only — configurable per job (FR5.1, decision B2).
-            </dd>
-          </div>
-        </dl>
-      </div>
-    </main>
+      {/* Unknown paths go to the workspace, which redirects to /login when
+          there is no session — so one rule covers both cases. */}
+      <Route path="*" element={<Navigate to="/jobs" replace />} />
+    </Routes>
   );
 }

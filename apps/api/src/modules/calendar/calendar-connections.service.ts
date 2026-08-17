@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
 import { CalendarCredentialCipher } from './calendar-credential.cipher';
+import { CalendarProviderRegistry } from './calendar-provider.registry';
 
 /**
  * The only projection of a connection that may enter an audit record (D43).
@@ -28,18 +29,23 @@ export function toAuditState(connection: CalendarConnection): Prisma.InputJsonVa
 }
 
 /**
- * Calendar connection lifecycle (FR6.1 Phase 1, amendments D34–D45).
+ * Calendar connection lifecycle (FR6.1, amendments D34–D45).
  *
- * STORAGE AND LIFECYCLE ONLY. No Google or Microsoft call is made from here;
- * `authorise` is invoked by a provider adapter once a real OAuth exchange has
- * produced a refresh token, and no such adapter exists yet. Nothing in this
- * file accepts a credential from an HTTP client.
+ * STORAGE AND LIFECYCLE. `authorise` is invoked by a provider adapter once a
+ * real OAuth exchange has produced a refresh token; nothing in this file
+ * accepts a credential from an HTTP client.
+ *
+ * THE ONE PROVIDER CALL MADE FROM HERE is best-effort revocation on
+ * disconnect, reached through `CalendarProviderRegistry` and never through a
+ * named provider (D35). See `markDisconnected` for why it runs only after the
+ * local credential has already been destroyed.
  */
 @Injectable()
 export class CalendarConnectionsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly cipher: CalendarCredentialCipher,
+    private readonly registry: CalendarProviderRegistry,
   ) {}
 
   /**
@@ -83,6 +89,33 @@ export class CalendarConnectionsService {
         disconnectedAt: null,
       },
     });
+  }
+
+  /**
+   * Live connections for a set of users, for the availability router.
+   *
+   * `connected` only: a disconnected row holds no credential and cannot answer
+   * anything, so its owner belongs in `notConnected` rather than in a group
+   * the adapter would try to query.
+   */
+  listConnectedFor(userIds: string[]) {
+    return this.prisma.calendarConnection.findMany({
+      where: { userId: { in: userIds }, status: CalendarConnectionStatus.connected },
+      orderBy: [{ provider: 'asc' }, { userId: 'asc' }],
+    });
+  }
+
+  /**
+   * Move one user's connection to `disconnected` (D36).
+   *
+   * Used when a provider rejects the stored credential mid-request: permanent
+   * failures stop retrying instead of being attempted again on every call.
+   */
+  async markDisconnectedFor(userId: string, provider: CalendarProvider): Promise<void> {
+    const connection = await this.prisma.calendarConnection.findFirst({
+      where: { userId, provider, status: CalendarConnectionStatus.connected },
+    });
+    if (connection) await this.markDisconnected(connection.id);
   }
 
   /** Every connection this user personally authorised. */
@@ -144,9 +177,10 @@ export class CalendarConnectionsService {
    * `calendar.disconnected` per connection and none when there was nothing to
    * disconnect.
    *
-   * LOCAL INVALIDATION ONLY in this phase. The stored credential is cleared so
-   * this system can no longer use it; telling Google or Microsoft to revoke
-   * their side needs a provider adapter that does not exist yet.
+   * LOCAL INVALIDATION FIRST. The stored credential is cleared so this system
+   * can no longer use it, and `markDisconnected` then asks the provider to
+   * revoke its side — best effort, because offboarding must complete whether
+   * or not Google or Microsoft answers.
    */
   async disconnectAllForUser(userId: string): Promise<CalendarConnection[]> {
     const live = await this.prisma.calendarConnection.findMany({
@@ -191,8 +225,17 @@ export class CalendarConnectionsService {
    * stays distinguishable from "never connected"; the secret is not, because
    * a disconnected connection has no use for it.
    */
-  private markDisconnected(id: string): Promise<CalendarConnection> {
-    return this.prisma.calendarConnection.update({
+  private async markDisconnected(id: string): Promise<CalendarConnection> {
+    const existing = await this.prisma.calendarConnection.findUnique({ where: { id } });
+
+    /*
+     * LOCAL FIRST, PROVIDER SECOND (H). The stored credential is destroyed
+     * before the provider is asked to revoke, so a provider that is down or
+     * refuses cannot leave a usable secret behind. Revocation is best effort
+     * by design — the user asked to disconnect, and that must succeed either
+     * way.
+     */
+    const disconnected = await this.prisma.calendarConnection.update({
       where: { id },
       data: {
         status: CalendarConnectionStatus.disconnected,
@@ -200,5 +243,18 @@ export class CalendarConnectionsService {
         disconnectedAt: new Date(),
       },
     });
+
+    if (existing?.encryptedRefreshToken) {
+      const token = this.cipher.open(existing.encryptedRefreshToken);
+      const adapter = this.registry.get(existing.provider);
+      if (token && adapter?.isConfigured()) {
+        // Adapters swallow their own failures; this guard is for anything
+        // unexpected, so a revocation problem can never surface as a failed
+        // disconnect.
+        await adapter.revoke(token).catch(() => undefined);
+      }
+    }
+
+    return disconnected;
   }
 }

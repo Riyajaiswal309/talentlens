@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import {
   CalendarProvider,
   ManualCalendarProvider,
@@ -10,11 +10,11 @@ import {
 /**
  * FR6.1 — the interviewer-availability seam.
  *
- * STRUCTURAL ONLY. No provider is implemented, no route calls this, and FR6.1
- * is not complete: an ownership model, an OAuth contract, token storage and a
- * consent flow remain unspecified (register section F). What these tests pin
- * is the shape of the boundary and the meaning of `null`, because those are
- * the two things a future provider must not quietly redefine.
+ * These tests pin the SHAPE of the boundary and the meaning of `null` — the
+ * two things a provider must not quietly redefine. The Google and Microsoft
+ * adapters that now sit behind it are covered separately; what matters here is
+ * that `ManualCalendarProvider` still behaves as FR6.3 requires on a
+ * deployment with no integration at all.
  *
  * The distinction the seam exists to make: `isAvailable()` answers "is the
  * provider reachable" (FR6.3); `getAvailability()` answers "when is this
@@ -62,6 +62,7 @@ describe('CalendarProvider availability seam (FR6.1)', () => {
           endsAt: new Date(),
           timezone: 'Europe/London',
           interviewerEmails: [],
+          interviewerUserIds: [],
         }),
       ).toBeNull();
     });
@@ -147,17 +148,19 @@ describe('CalendarProvider availability seam (FR6.1)', () => {
     });
   });
 
-  describe('the seam is not wired to anything yet', () => {
+  describe('the seam is reached only through the approved path', () => {
     /**
-     * FR6.1 is deliberately NOT complete. No route calls getAvailability:
-     * §23.2 specifies no availability endpoint and Phase 1's Table 12.3 gap
-     * list omits one despite RC-11 rendering an availability grid (E3).
+     * FR6.1's availability read is now wired (D42, B8), so the earlier form of
+     * this guard — "no production code calls getAvailability" — would assert
+     * the opposite of the approved design.
      *
-     * This asserts the boundary of the approved scope. If it fails, either an
-     * endpoint appeared without a specification, or scheduling started
-     * depending on availability data that no deployment can supply.
+     * Its PURPOSE is preserved and is still worth having: the seam must be
+     * reached from the availability endpoint and its router, and from nowhere
+     * else. If a third caller appears, either scheduling has started depending
+     * on free/busy data that a manual deployment cannot supply, or someone has
+     * added a second surface for calendar reads without a contract.
      */
-    it('no production code calls getAvailability', () => {
+    it('only the availability controller and the router call getAvailability', () => {
       const walk = (dir: string): string[] =>
         readdirSync(dir).flatMap((entry) => {
           const full = join(dir, entry);
@@ -166,13 +169,28 @@ describe('CalendarProvider availability seam (FR6.1)', () => {
         });
 
       const src = join(__dirname, '..', '..');
-      const callers = walk(src).filter(
-        (file) =>
-          !file.endsWith('calendar.provider.ts') &&
-          /\bgetAvailability\s*\(/.test(readFileSync(file, 'utf8')),
-      );
+      // The seam's own declaration is excluded by EXACT path. `endsWith` would
+      // also swallow `connected-calendar.provider.ts`, hiding the very caller
+      // this guard exists to watch.
+      const seam = join(src, 'modules', 'interviews', 'calendar.provider.ts');
+      const callers = walk(src)
+        .filter(
+          (file) => file !== seam && /\bgetAvailability\s*\(/.test(readFileSync(file, 'utf8')),
+        )
+        .map((file) =>
+          file
+            .slice(src.length + 1)
+            .split(sep)
+            .join('/'),
+        )
+        .sort();
 
-      expect(callers).toEqual([]);
+      expect(callers).toEqual([
+        // The router that resolves each interviewer's connection (D34, D35).
+        'modules/calendar/connected-calendar.provider.ts',
+        // GET /v1/interviews/availability (D42).
+        'modules/interviews/availability.controller.ts',
+      ]);
     });
   });
 });

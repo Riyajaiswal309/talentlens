@@ -168,8 +168,17 @@ describe('GET /health authentication (PRD §7, §25.1)', () => {
         });
 
       const src = join(__dirname, '..');
+      /*
+       * Comments are stripped before scanning. A file that only DISCUSSES
+       * `@Public()` in a docblock — several now explain why they must not use
+       * it — is not a file that opened a route, and flagging it would train
+       * the next reader to ignore this test.
+       */
+      const withoutComments = (source: string) =>
+        source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
       const marked = walk(src)
-        .filter((file) => /@Public\(\)/.test(readFileSync(file, 'utf8')))
+        .filter((file) => /@Public\(\)/.test(withoutComments(readFileSync(file, 'utf8'))))
         .map((file) =>
           file
             .slice(src.length + 1)
@@ -178,13 +187,19 @@ describe('GET /health authentication (PRD §7, §25.1)', () => {
         )
         .sort();
 
+      /*
+       * Files that APPLY the decorator. `public.decorator.ts` and
+       * `jwt-auth.guard.ts` define and read it but never apply it, so with
+       * comments stripped they correctly drop out — leaving exactly the five
+       * surfaces that are genuinely unauthenticated.
+       *
+       * The calendar module is deliberately absent (FR6.1, D40): its OAuth
+       * routes run under the interviewer's own session.
+       */
       expect(marked).toEqual([
-        // The decorator and the guard that reads it — definitions, not routes.
-        'common/decorators/public.decorator.ts',
-        'health/health.controller.ts', // this fix — an unauthenticated probe
+        'health/health.controller.ts', // liveness probe, PRD §7 / §25.1
         'modules/applications/applications.controller.ts', // FR2.1 public submission
         'modules/auth/auth.controller.ts', // login / refresh
-        'modules/auth/guards/jwt-auth.guard.ts',
         'modules/interviews/scheduling.controller.ts', // FR6.2 token-authenticated
         'modules/jobs/public-jobs.controller.ts', // CA-01 public job board
       ]);

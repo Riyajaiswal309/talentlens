@@ -41,23 +41,17 @@ function toResponse(connection: CalendarConnection): CalendarConnectionResponse 
 }
 
 /**
- * FR6.1 Phase 1 — calendar connection management.
+ * FR6.1 — calendar connection management: read and disconnect.
  *
- * WHAT IS DELIBERATELY ABSENT: there is no connect endpoint. D40 puts consent
- * under the interviewer's own session via a provider OAuth redirect, and no
- * Google or Microsoft adapter exists yet. The two ways to ship a "connect"
- * route today would both be worse than shipping none:
+ * THE CONNECT HALF LIVES IN `CalendarOAuthController`, on the same path
+ * prefix. It is separate because it is the only half that touches a provider:
+ * D40's consent flow mints state, exchanges a one-time code and calls
+ * `CalendarConnectionsService.authorise()`, which remains unreachable from
+ * HTTP so no caller can plant a credential of their choosing.
  *
- *   - a route that accepts a refresh token from the client would let any
- *     caller plant a credential of their choosing, and
- *   - a route that fabricates a connection without a provider exchange would
- *     record an `account_identifier` nothing authorised.
- *
- * So the connect half waits for the adapter. `CalendarConnectionsService.
- * authorise()` is the seam it will call, and it is unreachable from HTTP.
- *
- * Disconnect and read ARE provider-independent — removing a credential this
- * system holds needs nobody's permission but ours — so they ship now.
+ * Read and disconnect ARE provider-independent — removing a credential this
+ * system holds needs nobody's permission but ours — which is why they sit here
+ * and need no adapter to be configured.
  *
  * CANDIDATES ARE ABSENT FROM EVERY ROUTE (D44). They are never interviewers,
  * and §24.2 grants them nothing here.
