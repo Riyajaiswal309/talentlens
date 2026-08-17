@@ -16,7 +16,7 @@ import type { JobResponse } from './useJobs';
  * `Jobs › Senior Backend Engineer` (§4.1).
  */
 /** The tabs that lead somewhere. `Settings` is still unbuilt. */
-export type JobTab = 'overview' | 'candidates' | 'pipeline';
+export type JobTab = 'overview' | 'candidates' | 'pipeline' | 'weights';
 
 export function JobHeader({
   job,
@@ -125,6 +125,21 @@ function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: JobTab }) {
             }`}
           >
             Pipeline
+          </NavLink>
+        </li>
+        <li>
+          {/* RC-08. Its own tab rather than a control inside RC-05: the
+              weighting belongs to the job, not to one candidate list. */}
+          <NavLink
+            to={`/jobs/${jobId}/ranking-weights`}
+            aria-current={activeTab === 'weights' ? 'page' : undefined}
+            className={`${base} ${
+              activeTab === 'weights'
+                ? 'border-primary-700 text-primary-700'
+                : 'border-transparent text-neutral-700 hover:text-neutral-900'
+            }`}
+          >
+            Ranking weights
           </NavLink>
         </li>
         <li>

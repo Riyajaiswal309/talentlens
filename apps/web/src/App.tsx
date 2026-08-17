@@ -12,6 +12,7 @@ import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
 import { FunnelPage } from './features/analytics/FunnelPage';
 import { PipelineBoard } from './features/pipeline/PipelineBoard';
 import { DashboardPage } from './features/dashboard/DashboardPage';
+import { RankingWeightsPage } from './features/jobs/RankingWeightsPage';
 
 /**
  * Route table.
@@ -52,6 +53,8 @@ export function App() {
             <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
             {/* RC-09. A tab of the job hub, so it sits under the job's path. */}
             <Route path="/jobs/:jobId/pipeline" element={<PipelineBoard />} />
+            {/* RC-08. Also a job tab — the weighting is per requisition. */}
+            <Route path="/jobs/:jobId/ranking-weights" element={<RankingWeightsPage />} />
             {/*
               The parameter is an APPLICATION id, not a person's id: the record
               being read is one candidate's application to THIS job. Named for
