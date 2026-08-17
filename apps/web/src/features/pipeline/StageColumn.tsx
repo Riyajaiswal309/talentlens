@@ -14,6 +14,7 @@ export function StageColumn({
   isTerminal,
   emptyLabel = 'No candidates in this stage',
   tone = 'stage',
+  headerAction,
   children,
 }: {
   name: string;
@@ -22,6 +23,8 @@ export function StageColumn({
   emptyLabel?: string;
   /** `unknown` marks a column the job's stage axis no longer lists. */
   tone?: 'stage' | 'unknown';
+  /** RC-10's per-column select-all. Omitted when the column is empty. */
+  headerAction?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -45,8 +48,11 @@ export function StageColumn({
             </span>
           )}
         </h3>
-        {/* The count badge Flow 7 expects to update after a move. */}
-        <span className="font-mono text-xs font-semibold text-neutral-700">{count}</span>
+        <div className="flex shrink-0 items-baseline gap-2">
+          {headerAction}
+          {/* The count badge Flow 7 expects to update after a move. */}
+          <span className="font-mono text-xs font-semibold text-neutral-700">{count}</span>
+        </div>
       </header>
 
       <div className="flex-1 space-y-2 p-3">

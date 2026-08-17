@@ -1,3 +1,4 @@
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
@@ -5,21 +6,28 @@ import { LoadingState, Skeleton } from '../../components/Skeleton';
 import { JobHeader } from '../jobs/JobHeader';
 import { useJob } from '../jobs/useJobs';
 import { useJobCandidates, type JobCandidateResponse } from '../candidates/useJobCandidates';
+import { BulkActionBar } from './BulkActionBar';
 import { CandidateCard } from './CandidateCard';
 import { StageColumn } from './StageColumn';
 import { groupByStage, useChangeStage, usePipelineStages, type PipelineStage } from './usePipeline';
 
 /**
- * RC-09 — the pipeline board (Table 5.1; FR5.1, FR5.4; Flow 7).
+ * RC-09 — the pipeline board (Table 5.1; FR5.1, FR5.4; Flow 7), with RC-10's
+ * bulk actions on top of it.
  *
  * COLUMNS COME FROM THE JOB'S OWN STAGES, fetched live — see
  * `usePipelineStages` for why the funnel endpoint is the source and when the
  * §14.1 defaults stand in.
  *
+ * SELECTION LIVES HERE, not in the columns. A bulk action can span stages —
+ * "move everyone in Screening and Interview to Offer" is one request — so the
+ * set has to be owned above the columns that display it.
+ *
  * WHAT IS DELIBERATELY ABSENT:
- *   Bulk select is RC-10, a separate screen, out of scope here.
  *   Drag-and-drop is not the interaction — `MoveStageMenu` explains why a
  *   keyboard-operable menu replaces a drag-only affordance (NFR4, WCAG 2.1.1).
+ *   Tagging (RC-10's third action) has no endpoint or column anywhere in the
+ *   API, so no control is offered for it.
  *   A stage filter (Table 5.1's secondary action) is omitted because
  *   `ListJobCandidatesQueryDto` accepts only `cursor` and `limit`, so any
  *   filter parameter would be a 400.
@@ -34,6 +42,44 @@ export function PipelineBoard() {
 
   const rows = candidates.data?.pages.flatMap((page) => page.data) ?? [];
   const { columns, unknown } = groupByStage(rows, axis.stages);
+
+  /*
+   * RC-10's selection. A Set keeps membership checks cheap per card, and holding
+   * ids rather than rows means a refetch cannot leave the selection pointing at
+   * stale objects — only at ids, which is what the endpoint takes anyway.
+   */
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set());
+
+  const toggle = useCallback((applicationId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (!next.delete(applicationId)) next.add(applicationId);
+      return next;
+    });
+  }, []);
+
+  const setMany = useCallback((ids: string[], selected: boolean) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (selected) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  /*
+   * Only ids still on the board. A candidate can leave the loaded set — moved
+   * by a colleague, or refetched out of view — and a selection that outlived its
+   * card would silently include someone the recruiter can no longer see.
+   */
+  const selected = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.applicationId)).map((row) => row.applicationId),
+    [rows, selectedIds],
+  );
 
   /*
    * FR4.5 as a tri-state, the discipline RC-05 and RC-06 use: `undefined` while
@@ -80,6 +126,18 @@ export function PipelineBoard() {
         </div>
       )}
 
+      {/* RC-10. Renders nothing until something is selected. */}
+      <BulkActionBar
+        jobId={jobId}
+        stages={axis.stages}
+        selected={selected}
+        rows={rows}
+        onClearSelection={clearSelection}
+        // Only the confirmed ids leave the selection; failures stay selected so
+        // they can be retried without picking them again.
+        onCompleted={(succeededIds) => setMany(succeededIds, false)}
+      />
+
       {candidates.isPending || axis.isPending ? (
         <LoadingState label="Loading the pipeline…">
           <div className="flex gap-4 overflow-x-auto pb-2">
@@ -117,6 +175,9 @@ export function PipelineBoard() {
                 showScore={showScore}
                 onMove={onMove}
                 movingId={movingId}
+                selectedIds={selectedIds}
+                onToggle={toggle}
+                onSetMany={setMany}
               />
             ))}
 
@@ -142,6 +203,8 @@ export function PipelineBoard() {
                     showScore={showScore}
                     onMove={(toStage) => onMove(row.applicationId, toStage)}
                     pending={movingId === row.applicationId}
+                    selected={selectedIds.has(row.applicationId)}
+                    onToggleSelect={() => toggle(row.applicationId)}
                   />
                 ))}
               </StageColumn>
@@ -179,6 +242,9 @@ function Column({
   showScore,
   onMove,
   movingId,
+  selectedIds,
+  onToggle,
+  onSetMany,
 }: {
   stage: PipelineStage;
   rows: JobCandidateResponse[];
@@ -187,9 +253,41 @@ function Column({
   showScore: boolean | undefined;
   onMove: (applicationId: string, toStage: string) => void;
   movingId: string | undefined;
+  selectedIds: ReadonlySet<string>;
+  onToggle: (applicationId: string) => void;
+  onSetMany: (ids: string[], selected: boolean) => void;
 }) {
+  const ids = rows.map((row) => row.applicationId);
+  const selectedHere = ids.filter((id) => selectedIds.has(id)).length;
+  const allSelected = ids.length > 0 && selectedHere === ids.length;
+
   return (
-    <StageColumn name={stage.name} count={rows.length} isTerminal={stage.isTerminal}>
+    <StageColumn
+      name={stage.name}
+      count={rows.length}
+      isTerminal={stage.isTerminal}
+      headerAction={
+        // Per-column, because the useful bulk gesture is "everyone at this
+        // stage". Hidden on an empty column, where it would toggle nothing.
+        ids.length > 0 ? (
+          <label className="flex cursor-pointer items-center gap-1 text-xs text-neutral-700">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              // Partially selected is neither checked nor unchecked; the
+              // indeterminate flag is what a checkbox has for exactly this.
+              ref={(node) => {
+                if (node) node.indeterminate = selectedHere > 0 && !allSelected;
+              }}
+              onChange={() => onSetMany(ids, !allSelected)}
+              aria-label={`Select all ${ids.length} in ${stage.name}`}
+              className="h-3.5 w-3.5 rounded-sm border-neutral-300 accent-primary-700"
+            />
+            All
+          </label>
+        ) : undefined
+      }
+    >
       {rows.map((row) => (
         <CandidateCard
           key={row.applicationId}
@@ -199,6 +297,8 @@ function Column({
           showScore={showScore}
           onMove={(toStage) => onMove(row.applicationId, toStage)}
           pending={movingId === row.applicationId}
+          selected={selectedIds.has(row.applicationId)}
+          onToggleSelect={() => onToggle(row.applicationId)}
         />
       ))}
     </StageColumn>

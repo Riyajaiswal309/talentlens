@@ -18,6 +18,8 @@ export function CandidateCard({
   showScore,
   onMove,
   pending,
+  selected,
+  onToggleSelect,
 }: {
   row: JobCandidateResponse;
   jobId: string | undefined;
@@ -26,21 +28,43 @@ export function CandidateCard({
   showScore: boolean | undefined;
   onMove: (toStage: string) => void;
   pending: boolean;
+  /** RC-10 — part of the current bulk selection. */
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   return (
     <article
-      className={`rounded-md border border-neutral-300 bg-neutral-0 p-3 ${
+      className={`rounded-md border bg-neutral-0 p-3 ${
+        // A selected card is outlined rather than tinted, so the selection reads
+        // at a glance without competing with the stage colouring.
+        selected ? 'border-primary-700' : 'border-neutral-300'
+      } ${
         // Flow 7's "subtle in-flight indicator" while the move is in the air.
         pending ? 'opacity-60' : ''
       }`}
       aria-busy={pending}
     >
-      <Link
-        to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
-        className="rounded-sm text-sm font-semibold text-primary-700 hover:underline"
-      >
-        {row.candidate.fullName}
-      </Link>
+      <div className="flex items-start gap-2">
+        {/*
+          A native checkbox, labelled with the candidate's name — five identical
+          "select" controls in a column would otherwise be indistinguishable to
+          a screen reader (NFR4).
+        */}
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          disabled={pending}
+          aria-label={`Select ${row.candidate.fullName} for bulk actions`}
+          className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-neutral-300 accent-primary-700"
+        />
+        <Link
+          to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
+          className="rounded-sm text-sm font-semibold text-primary-700 hover:underline"
+        >
+          {row.candidate.fullName}
+        </Link>
+      </div>
       <p className="mt-0.5 truncate text-xs text-neutral-700" title={row.candidate.email}>
         {row.candidate.email}
       </p>
