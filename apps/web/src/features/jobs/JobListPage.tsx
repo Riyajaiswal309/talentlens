@@ -52,12 +52,21 @@ export function JobListPage() {
 
   return (
     <div>
-      <header className="mb-6">
-        <p className="font-mono text-xs text-neutral-500">RC-02</p>
-        <h1 className="text-2xl font-semibold text-neutral-900">Jobs</h1>
-        <p className="mt-1 text-sm text-neutral-700">
-          Requisitions in your company. Open one to see its candidates.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="font-mono text-xs text-neutral-500">RC-02</p>
+          <h1 className="text-2xl font-semibold text-neutral-900">Jobs</h1>
+          <p className="mt-1 text-sm text-neutral-700">
+            Requisitions in your company. Open one to see its candidates.
+          </p>
+        </div>
+        {/* RC-02's primary action alongside "Open job" (Table 5.1). */}
+        <Link
+          to="/jobs/new"
+          className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
+        >
+          Create job
+        </Link>
       </header>
 
       <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border border-neutral-300 bg-neutral-0 p-4">
@@ -186,7 +195,17 @@ function JobListBody({
     ) : (
       <EmptyState
         title="No jobs yet"
-        description="Requisitions your company creates will appear here. Creating one is the RC-03 screen, which is not built yet."
+        description="Requisitions your company creates will appear here."
+        // Flow 1: "First-time RC-02 shows an empty state with a single Create
+        // job CTA." One action, because there is nothing else to do here.
+        action={
+          <Link
+            to="/jobs/new"
+            className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
+          >
+            Create job
+          </Link>
+        }
       />
     );
   }

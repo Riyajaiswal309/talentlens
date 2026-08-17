@@ -1,7 +1,8 @@
 import { Link, useParams } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { JobHeader } from './JobHeader';
-import { toSkills, useJob, type JobResponse } from './useJobs';
+import { toSkills, useJob, type JobResponse, type JobStatus } from './useJobs';
+import { ALLOWED_STATUS_TRANSITIONS, useUpdateJob } from './useJobMutations';
 
 /**
  * RC-04 — Job detail (Table 5.1; `GET /v1/jobs/:id`).
@@ -29,7 +30,85 @@ export function JobDetailPage() {
   return (
     <div>
       <JobHeader job={query.data} loading={query.isPending} activeTab="overview" />
+      {query.data && <JobActions job={query.data} />}
       {query.data && <JobRecord job={query.data} />}
+    </div>
+  );
+}
+
+/**
+ * Table 5.1's RC-04 secondary actions — Edit and Close, plus Publish.
+ *
+ * ONLY WHAT THE API WILL ACCEPT IS SHOWN. `ALLOWED_TRANSITIONS` permits
+ * DRAFT → PUBLISHED|CLOSED and PUBLISHED → CLOSED, and refuses everything else
+ * with a 409; a closed job cannot be modified at all, so it gets no controls.
+ * Rendering a Publish button on a closed job would be a guaranteed error
+ * dressed up as an action.
+ */
+function JobActions({ job }: { job: JobResponse }) {
+  const update = useUpdateJob(job.id);
+  const allowed = ALLOWED_STATUS_TRANSITIONS[job.status as JobStatus] ?? [];
+  const closed = job.status === 'CLOSED';
+
+  function change(target: JobStatus) {
+    const message =
+      target === 'PUBLISHED'
+        ? 'Publish this job? It becomes publicly visible on the careers page.'
+        : 'Close this job? A closed job cannot be edited or reopened.';
+    // Table 5.1 requires a publish confirmation; closing is irreversible, which
+    // §8.6 reserves the danger variant and a confirmed step for.
+    if (!window.confirm(message)) return;
+    update.mutate({ status: target });
+  }
+
+  if (closed) {
+    return (
+      <p className="mb-4 text-sm text-neutral-500">
+        Closed jobs are read-only — they cannot be edited or reopened.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Link
+          to={`/jobs/${job.id}/edit`}
+          className="inline-flex h-10 items-center rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+        >
+          Edit
+        </Link>
+
+        {allowed.includes('PUBLISHED') && (
+          <button
+            type="button"
+            onClick={() => change('PUBLISHED')}
+            disabled={update.isPending}
+            aria-disabled={update.isPending}
+            className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+          >
+            {update.isPending ? 'Working…' : 'Publish'}
+          </button>
+        )}
+
+        {allowed.includes('CLOSED') && (
+          <button
+            type="button"
+            onClick={() => change('CLOSED')}
+            disabled={update.isPending}
+            aria-disabled={update.isPending}
+            className="h-10 rounded-md bg-danger-700 px-4 text-sm font-semibold text-neutral-0 hover:opacity-90 disabled:opacity-40"
+          >
+            Close job
+          </button>
+        )}
+      </div>
+
+      {update.error != null && (
+        <div className="mt-3">
+          <ErrorState error={update.error} title="That change could not be applied" />
+        </div>
+      )}
     </div>
   );
 }

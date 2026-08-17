@@ -5,6 +5,8 @@ import { RecruiterLayout } from './layouts/RecruiterLayout';
 import { LoginPage } from './features/auth/LoginPage';
 import { JobListPage } from './features/jobs/JobListPage';
 import { JobDetailPage } from './features/jobs/JobDetailPage';
+import { JobCreatePage } from './features/jobs/JobCreatePage';
+import { JobEditPage } from './features/jobs/JobEditPage';
 import { CandidateListPage } from './features/candidates/CandidateListPage';
 import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
 
@@ -32,7 +34,15 @@ export function App() {
         <Route element={<RequireRole />}>
           <Route element={<RecruiterLayout />}>
             <Route path="/jobs" element={<JobListPage />} />
+            {/*
+              Declared before `/jobs/:jobId` for readability. React Router v6
+              ranks a static segment above a dynamic one regardless of order, so
+              `/jobs/new` cannot be swallowed as a job id — but stating it here
+              keeps that guarantee visible rather than implicit.
+            */}
+            <Route path="/jobs/new" element={<JobCreatePage />} />
             <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+            <Route path="/jobs/:jobId/edit" element={<JobEditPage />} />
             <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
             {/*
               The parameter is an APPLICATION id, not a person's id: the record
