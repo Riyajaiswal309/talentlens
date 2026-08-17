@@ -73,6 +73,20 @@ interface Crumb {
 }
 
 /**
+ * Path segments that are their own label rather than an id to look up.
+ *
+ * A lookup rather than a chain of comparisons: every new section adds one
+ * entry, and a segment missing from here falls through to the id path and
+ * surfaces as a raw URL fragment in the trail — which is how `pipeline`
+ * appeared lower-cased when RC-09 was routed.
+ */
+const STATIC_LABELS: Record<string, string> = {
+  jobs: 'Jobs',
+  candidates: 'Candidates',
+  pipeline: 'Pipeline',
+};
+
+/**
  * Derive the trail from the current path.
  *
  * Reads the URL rather than a registry of routes, so a page cannot forget to
@@ -92,12 +106,7 @@ function useTrail(): Crumb[] {
 
       // Static segments are their own label; id segments look one up.
       const known = labels[segment];
-      const label =
-        segment === 'jobs'
-          ? 'Jobs'
-          : segment === 'candidates'
-            ? 'Candidates'
-            : (known ?? shortenId(segment));
+      const label = STATIC_LABELS[segment] ?? known ?? shortenId(segment);
 
       crumbs.push(isLast ? { label } : { label, to });
     });
