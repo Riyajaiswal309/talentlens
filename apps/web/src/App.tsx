@@ -11,6 +11,7 @@ import { CandidateListPage } from './features/candidates/CandidateListPage';
 import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
 import { FunnelPage } from './features/analytics/FunnelPage';
 import { PipelineBoard } from './features/pipeline/PipelineBoard';
+import { DashboardPage } from './features/dashboard/DashboardPage';
 
 /**
  * Route table.
@@ -35,6 +36,9 @@ export function App() {
       <Route element={<RequireAuth />}>
         <Route element={<RequireRole />}>
           <Route element={<RecruiterLayout />}>
+            {/* RC-01. Tenant-wide, like RC-12 — it summarises every requisition
+                rather than sitting inside one. */}
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/jobs" element={<JobListPage />} />
             {/*
               Declared before `/jobs/:jobId` for readability. React Router v6
