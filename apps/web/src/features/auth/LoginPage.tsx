@@ -14,8 +14,15 @@ import { isApiError } from '../../lib/problem-details';
  */
 const MIN_PASSWORD_LENGTH = 12;
 
-/** Where a signed-in recruiter lands. */
-const DEFAULT_DESTINATION = '/jobs';
+/**
+ * Where a signed-in recruiter lands when they had no destination in mind.
+ *
+ * RC-01, matching the catch-all in `App.tsx` — §4.1 puts Dashboard first in the
+ * recruiter IA, and a cross-requisition overview is the useful opening screen.
+ * A deep link still wins: `state.from` is preferred over this, so signing in
+ * after being bounced off a protected URL returns you to that URL.
+ */
+const DEFAULT_DESTINATION = '/dashboard';
 
 interface LocationState {
   from?: { pathname?: string };

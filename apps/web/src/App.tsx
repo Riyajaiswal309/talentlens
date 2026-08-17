@@ -73,9 +73,14 @@ export function App() {
         </Route>
       </Route>
 
-      {/* Unknown paths go to the workspace, which redirects to /login when
-          there is no session — so one rule covers both cases. */}
-      <Route path="*" element={<Navigate to="/jobs" replace />} />
+      {/*
+        Unknown paths — and `/` — go to RC-01, the workspace's landing screen.
+        That route sits inside the guards, so a signed-out visitor is forwarded
+        on to /login by `RequireAuth` and a Hiring Manager still meets
+        `RequireRole`'s refusal: one rule covers all three cases, and the
+        redirect itself grants nothing.
+      */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
