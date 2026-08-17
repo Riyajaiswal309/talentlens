@@ -29,7 +29,12 @@ export function JobDetailPage() {
 
   return (
     <div>
-      <JobHeader job={query.data} loading={query.isPending} activeTab="overview" />
+      <JobHeader
+        job={query.data}
+        loading={query.isPending}
+        activeTab="overview"
+        errored={query.isError}
+      />
       {query.data && <JobActions job={query.data} />}
       {query.data && <JobRecord job={query.data} />}
     </div>

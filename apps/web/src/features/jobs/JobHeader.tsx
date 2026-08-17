@@ -22,12 +22,30 @@ export function JobHeader({
   job,
   loading,
   activeTab,
+  errored = false,
 }: {
   job: JobResponse | undefined;
   loading: boolean;
   activeTab: JobTab;
+  /**
+   * The job could not be read at all — a 404, or another tenant's id.
+   *
+   * REQUIRED, BECAUSE "NO JOB" IS AMBIGUOUS. `job === undefined` means either
+   * "still arriving" or "will never arrive", and treating both as loading left
+   * a skeleton pulsing forever above the page's own error panel. The caller
+   * knows which it is, so it says.
+   */
+  errored?: boolean;
 }) {
+  // Before any early return: hooks must run on every render.
   useBreadcrumbLabel(job?.id, job?.title);
+
+  /*
+   * Nothing at all when the job is gone. The page below already renders the
+   * refusal, and a header with no title — or worse, a skeleton implying one is
+   * on its way — would only compete with it.
+   */
+  if (errored) return null;
 
   if (loading || !job) {
     return (

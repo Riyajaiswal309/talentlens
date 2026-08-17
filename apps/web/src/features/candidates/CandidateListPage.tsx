@@ -53,7 +53,12 @@ export function CandidateListPage() {
 
   return (
     <div>
-      <JobHeader job={jobQuery.data} loading={jobQuery.isPending} activeTab="candidates" />
+      <JobHeader
+        job={jobQuery.data}
+        loading={jobQuery.isPending}
+        activeTab="candidates"
+        errored={jobQuery.isError}
+      />
 
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-semibold text-neutral-900">

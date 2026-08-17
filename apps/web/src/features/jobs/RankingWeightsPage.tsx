@@ -54,7 +54,7 @@ export function RankingWeightsPage() {
 
   return (
     <div>
-      <JobHeader job={job.data} loading={job.isPending} activeTab="weights" />
+      <JobHeader job={job.data} loading={job.isPending} activeTab="weights" errored={job.isError} />
 
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-semibold text-neutral-900">Ranking weights</h2>

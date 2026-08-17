@@ -91,7 +91,12 @@ export function PipelineBoard() {
 
   return (
     <div>
-      <JobHeader job={job.data} loading={job.isPending} activeTab="pipeline" />
+      <JobHeader
+        job={job.data}
+        loading={job.isPending}
+        activeTab="pipeline"
+        errored={job.isError}
+      />
 
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-xl font-semibold text-neutral-900">
@@ -111,8 +116,14 @@ export function PipelineBoard() {
         Said out loud when the axis is not this job's own. A board drawn from
         defaults that silently claimed to be the job's pipeline would be a quiet
         lie about where candidates can go.
+
+        GATED ON THE JOB EXISTING. `usingFallback` is true for any non-v4 id,
+        including a garbage one — so on a 404 this banner used to appear above
+        the "Not available" panel, telling the reader the job exists but its
+        stages were unreadable. Two incompatible claims. With no job, the 404 is
+        the only fact worth stating.
       */}
-      {axis.usingFallback && (
+      {job.data && axis.usingFallback && (
         <p className="mb-4 rounded-sm border border-info-700 bg-neutral-0 px-3 py-2 text-sm text-info-700">
           Showing the six default stages. This job&rsquo;s own pipeline could not be read — the
           analytics endpoint that reports it only accepts version-4 job identifiers.
