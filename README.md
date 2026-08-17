@@ -497,13 +497,24 @@ docker compose up -d          # Postgres 15 + Redis 7 + LocalStack
 #    Or just what the console needs:
 #    docker compose up -d postgres redis
 
-# 4. Database
-pnpm --filter @talentlens/api prisma:migrate
-pnpm --filter @talentlens/api prisma:seed
+# 4. Database — run from apps/api WITH .env exported (see the note below)
+cd apps/api
+set -a && . ../../.env && set +a
+pnpm prisma:migrate
+pnpm prisma:seed
+cd ../..
 
 # 5. Run both apps
 pnpm dev
 ```
+
+> **Why step 4 exports `.env` by hand.** The running API loads the root `.env`
+> itself — `app.module.ts` calls `ConfigModule.forRoot({ envFilePath: ['../../.env'] })`
+> — which is why `pnpm dev` needs no extra setup. The **Prisma CLI does not**: it looks
+> for `.env` beside the schema or in the current directory, never at the monorepo root,
+> so `pnpm --filter @talentlens/api prisma:migrate` alone fails with
+> `P1012 — Environment variable not found: DATABASE_URL`. Exporting `.env` into the shell
+> first is the fix.
 
 | Service    | URL                            |
 | ---------- | ------------------------------ |
@@ -530,6 +541,72 @@ Open http://localhost:5173 and sign in. The recruiter console requires a `RECRUI
 Password for all four: `DevPassword123!` — development only, set by
 `apps/api/prisma/seed.ts`.
 
+### What the seed does and does not create
+
+`prisma/seed.ts` is deliberately minimal. It creates exactly:
+
+- 1 company, 4 users (one per role), 1 `ai_model_versions` row (`placeholder-v0`)
+- **1 job** — "Senior Backend Engineer", status **`DRAFT`**, `aiScoringEnabled: false`,
+  fixed id `00000000-0000-0000-0000-000000000010`
+- the 6 default pipeline stages for that job, and 1 job assignment
+
+It creates **no candidates, applications, resumes, match_scores or audit_logs** — the
+file says so in its own header. On a fresh clone the recruiter console is therefore fully
+navigable but the candidate-facing screens are legitimately empty: RC-05, RC-06, RC-09,
+RC-10 and RC-13 have nothing to list, and RC-12's funnel reports zeros.
+
+**A fresh seed cannot be demonstrated end to end without first creating data through the
+app.** Two facts make the path non-obvious:
+
+1. The one seeded job is `DRAFT`, so it is not publicly applyable.
+2. Its id is **not a v4 UUID**, and `SubmitApplicationDto` validates `jobId` with
+   `@IsUUID('4')` — so `POST /v1/applications` rejects it with
+   `400 jobId must be a valid job identifier`. This is the UUID inconsistency listed
+   under [current limitations](#deferred-screens-and-current-limitations), and it lands
+   squarely on the demo path.
+
+### Preparing a demonstrable dataset
+
+Using only real application features — no SQL, no fabricated rows:
+
+1. Sign in as `recruiter@talentlens.local` and create a job through **RC-03**
+   (`/jobs/new`). A job created this way gets a v4 id.
+2. Open it (**RC-04**) and press **Publish**.
+3. Submit an application to it against the public endpoint — `POST /v1/applications` is
+   `@Public()`, so no token is needed. `jobId`, `fullName` and `email` are required;
+   `phone`, `source` and a `resume` file are optional:
+
+   ```bash
+   curl -X POST http://localhost:3000/v1/applications \
+     -H 'Content-Type: application/json' \
+     -d '{"jobId":"<the v4 job id>","fullName":"Demo Candidate","email":"demo@example.com"}'
+   ```
+
+Note that the resume is stored but **not parsed** — no parser runs in this build — so
+`parseStatus` stays `PENDING` and no score is produced. That is the expected result, not
+a failure.
+
+### Recruiter demo flow
+
+Once at least one application exists:
+
+| Step | Screen                  | How you get there                                       |
+| ---- | ----------------------- | ------------------------------------------------------- |
+| 1    | Login (SC-01)           | http://localhost:5173 → `recruiter@talentlens.local`    |
+| 2    | Dashboard (RC-01)       | Automatic — sign-in lands on `/dashboard`               |
+| 3    | Job list (RC-02)        | Sidebar **Jobs**, or the dashboard's "View all jobs"    |
+| 4    | Job detail (RC-04)      | Click a job title                                       |
+| 5    | Candidates (RC-05/06)   | **Candidates** tab, or "View candidates"; click a name  |
+| 6    | Scorecards (RC-13)      | On the candidate detail screen                          |
+| 7    | Pipeline (RC-09/10)     | **Pipeline** tab; move a card, or multi-select for bulk |
+| 8    | Ranking weights (RC-08) | **Ranking weights** tab                                 |
+| 9    | Analytics (RC-12)       | Sidebar **Analytics**                                   |
+
+Every step is reachable by clicking — no URL typing required. The sidebar shows
+**Review queue** (RC-14) and **Interviews** (RC-11) as disabled entries marked "Later",
+which is the honest presentation of their
+[backend blockers](#deferred-screens-and-current-limitations).
+
 ### Running the apps separately
 
 ```bash
@@ -540,14 +617,16 @@ pnpm --filter @talentlens/api dev
 pnpm --filter @talentlens/web dev
 ```
 
-If `pnpm dev` cannot find the API's environment, load `.env` explicitly from `apps/api`:
+Both read the root `.env` through `ConfigModule`, so no extra environment setup is
+needed. To run the compiled API instead of watch mode:
 
 ```bash
-cd apps/api && set -a && . ../../.env && set +a && npx nest start --watch
+cd apps/api && set -a && . ../../.env && set +a && node dist/main.js
 ```
 
-Prisma CLI commands read `DATABASE_URL` from the environment and must be run from
-`apps/api`.
+Every **Prisma CLI** command (`prisma:migrate`, `prisma:seed`, `prisma:studio`,
+`prisma:deploy`) must be run from `apps/api` with `.env` exported — see the note under
+[Setup](#setup).
 
 ---
 
@@ -609,18 +688,25 @@ no public callback endpoint.
 | `prisma:seed`     | Seed demo data                                       |
 | `prisma:studio`   | Browse the database                                  |
 
-The API test suite needs Postgres and Redis running, because `pretest` seeds the
-database.
+The API test suite needs Postgres and Redis running **and `.env` exported**, because
+`pretest` runs `prisma db seed`:
+
+```bash
+cd apps/api && set -a && . ../../.env && set +a && pnpm test
+```
 
 ### Verification used for this build
 
 ```bash
-npx tsc -b                 # TypeScript project references
-npx eslint apps/web        # Frontend lint
-npx prettier --check .     # Formatting
-npx vite build             # Production frontend build (run from apps/web)
-git diff --check           # No whitespace errors in the diff
+cd apps/web && npx tsc -b   # TypeScript project references — there is no root tsconfig
+npx eslint apps/web         # Frontend lint (from the repository root)
+npx prettier --check .      # Formatting (from the repository root)
+cd apps/web && npx vite build  # Production frontend build
+git diff --check            # No whitespace errors in the diff
 ```
+
+`tsc -b` and `vite build` must be run from `apps/web`; there is no root `tsconfig.json`,
+so `npx tsc -b` at the repository root fails with `TS5083`.
 
 A scripted end-to-end browser pass covers signed-out redirects on all routes, role
 denial for `HIRING_MANAGER` and `CANDIDATE`, deep-link reload on every screen, 404 and
