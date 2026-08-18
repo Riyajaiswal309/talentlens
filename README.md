@@ -541,54 +541,72 @@ Open http://localhost:5173 and sign in. The recruiter console requires a `RECRUI
 Password for all four: `DevPassword123!` — development only, set by
 `apps/api/prisma/seed.ts`.
 
-### What the seed does and does not create
+### What the seed creates
 
-`prisma/seed.ts` is deliberately minimal. It creates exactly:
+`prisma/seed.ts` writes a baseline plus a demo dataset. Every write is an upsert against
+a fixed id or unique key, so **re-running it never duplicates a record**.
+
+**Baseline** — what the API test suite depends on:
 
 - 1 company, 4 users (one per role), 1 `ai_model_versions` row (`placeholder-v0`)
-- **1 job** — "Senior Backend Engineer", status **`DRAFT`**, `aiScoringEnabled: false`,
-  fixed id `00000000-0000-0000-0000-000000000010`
+- 1 job — "Senior Backend Engineer", status `DRAFT`, fixed id
+  `00000000-0000-0000-0000-000000000010`
 - the 6 default pipeline stages for that job, and 1 job assignment
 
-It creates **no candidates, applications, resumes, match_scores or audit_logs** — the
-file says so in its own header. On a fresh clone the recruiter console is therefore fully
-navigable but the candidate-facing screens are legitimately empty: RC-05, RC-06, RC-09,
-RC-10 and RC-13 have nothing to list, and RC-12's funnel reports zeros.
+**Demo dataset** — so a fresh clone is demonstrable the moment the seed finishes:
 
-**A fresh seed cannot be demonstrated end to end without first creating data through the
-app.** Two facts make the path non-obvious:
+- 1 job — **"Full-Stack Engineer"**, status **`PUBLISHED`**, with its own 6 stages and a
+  hiring-manager assignment
+- **8 candidates** and **8 applications**, spread across all six stages: Applied 2,
+  Screening 2, Interview 1, Offer 1, Hired 1, Rejected 1
+- **13 `stage_history` rows**, every one naming a human in `changed_by` — BR-01 allows no
+  system-actor path to that table
+- **6 scorecards** (ratings 2–5) and **3 comments**, all human-written text
+- one application deliberately has no `source`, so RC-12 demonstrates FR7.3's
+  `notRecorded` being kept distinct from `other`
 
-1. The one seeded job is `DRAFT`, so it is not publicly applyable.
-2. Its id is **not a v4 UUID**, and `SubmitApplicationDto` validates `jobId` with
-   `@IsUUID('4')` — so `POST /v1/applications` rejects it with
-   `400 jobId must be a valid job identifier`. This is the UUID inconsistency listed
-   under [current limitations](#deferred-screens-and-current-limitations), and it lands
-   squarely on the demo path.
+The demo job's id is a **real v4 UUID**, which is load-bearing rather than cosmetic:
+`SubmitApplicationDto` and `FunnelQueryDto` both validate with `@IsUUID('4')`, so the
+baseline job's `…0010` id — version nibble `0` — is rejected by `POST /v1/applications`
+and by the analytics job filter. This is the UUID inconsistency listed under
+[current limitations](#deferred-screens-and-current-limitations).
 
-### Preparing a demonstrable dataset
+### What the seed deliberately does not create
 
-Using only real application features — no SQL, no fabricated rows:
-
-1. Sign in as `recruiter@talentlens.local` and create a job through **RC-03**
-   (`/jobs/new`). A job created this way gets a v4 id.
-2. Open it (**RC-04**) and press **Publish**.
-3. Submit an application to it against the public endpoint — `POST /v1/applications` is
-   `@Public()`, so no token is needed. `jobId`, `fullName` and `email` are required;
-   `phone`, `source` and a `resume` file are optional:
-
-   ```bash
-   curl -X POST http://localhost:3000/v1/applications \
-     -H 'Content-Type: application/json' \
-     -d '{"jobId":"<the v4 job id>","fullName":"Demo Candidate","email":"demo@example.com"}'
-   ```
-
-Note that the resume is stored but **not parsed** — no parser runs in this build — so
-`parseStatus` stays `PENDING` and no score is produced. That is the expected result, not
-a failure.
+- **No `match_scores`.** No model is trained, so a seeded score would be a fabricated
+  number wearing the authority of a computed one. `aiScoringEnabled` is `false` on both
+  jobs, which is the FR4.5 unscored path the console already renders.
+- **No `resumes` or `parsed_profiles`.** No parser runs. An `s3_key` with no object
+  behind it in LocalStack is a broken link, and a parsed profile with no parser is the
+  same fabrication as a score.
+- **No `audit_logs`.** Those record what actually happened through the API; writing them
+  here would forge an audit trail.
 
 ### Recruiter demo flow
 
-Once at least one application exists:
+After `prisma:migrate` and `prisma:seed` the console has meaningful data immediately —
+no manual setup, no SQL. **RC-01, RC-02, RC-05, RC-06, RC-09, RC-10, RC-12 and RC-13**
+are all populated; RC-03, RC-04 and RC-08 never depended on candidate data. RC-07, RC-11
+and RC-14 remain unavailable for the backend reasons given under
+[deferred screens](#deferred-screens-and-current-limitations) — the seed changes nothing
+about them.
+
+Optionally, to exercise the public intake path as well, submit a live application against
+the **Full-Stack Engineer** job (its id is printed by RC-04's URL). `POST /v1/applications`
+is `@Public()`, so no token is needed; `jobId`, `fullName` and `email` are required, and
+`phone`, `source` and a `resume` file are optional:
+
+```bash
+curl -X POST http://localhost:3000/v1/applications \
+  -H 'Content-Type: application/json' \
+  -d '{"jobId":"<the v4 job id>","fullName":"Demo Candidate","email":"demo@example.com"}'
+```
+
+An attached resume is stored but **not parsed** — no parser runs in this build — so
+`parseStatus` stays `PENDING` and no score is produced. That is the expected result, not
+a failure.
+
+The click path:
 
 | Step | Screen                  | How you get there                                       |
 | ---- | ----------------------- | ------------------------------------------------------- |
