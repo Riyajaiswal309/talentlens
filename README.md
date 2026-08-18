@@ -76,19 +76,19 @@ TalentLens splits the work along that line.
 
 ### Implemented and demonstrable
 
-| Area                    | What works                                                                                        |
-| ----------------------- | ------------------------------------------------------------------------------------------------- |
-| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating 7-day refresh cookie      |
-| Role-based access       | Four roles; recruiter console gated to `RECRUITER` and `ADMIN` on both client and server          |
-| Job requisitions        | List with search/status filter and cursor pagination, create, edit, publish, close, duplicate     |
-| Candidate management    | Per-job candidate list, full application detail, comment thread                                   |
-| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                     |
-| Structured interviewing | Scorecards with 1–5 ratings, per-competency notes, one scorecard per reviewer per application     |
-| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance |
-| Analytics               | Conversion funnel per stage with drop-off, ratios and median time-in-stage                        |
-| Audit trail             | Append-only log with an Admin-only read/export API                                                |
-| Interview scheduling    | Candidate-facing scheduling links signed with a single-purpose expiring token                     |
-| Calendar integration    | Google and Microsoft OAuth connections, encrypted refresh tokens, interviewer availability        |
+| Area                    | What works                                                                                         |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating 7-day refresh cookie       |
+| Role-based access       | Four roles; recruiter console gated to `RECRUITER` and `ADMIN` on both client and server           |
+| Job requisitions        | List with department/status filters and cursor pagination, create, edit, publish, close, duplicate |
+| Candidate management    | Per-job candidate list, full application detail, comment thread                                    |
+| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                      |
+| Structured interviewing | Scorecards with 1–5 ratings, per-competency notes, one scorecard per reviewer per application      |
+| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance  |
+| Analytics               | Conversion funnel per stage with drop-off, ratios and median time-in-stage                         |
+| Audit trail             | Append-only log with an Admin-only read/export API                                                 |
+| Interview scheduling    | Candidate-facing scheduling links signed with a single-purpose expiring token                      |
+| Calendar integration    | Google and Microsoft OAuth connections, encrypted refresh tokens, interviewer availability         |
 
 ### Integrated but not trained
 
@@ -355,7 +355,7 @@ Eleven screens, all against the real API. Landing route after sign-in is `/dashb
 | ----- | ---------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | SC-01 | Login            | `/login`                                 | 12-character minimum checked client-side; shows the API's own 401 message    |
 | RC-01 | Dashboard        | `/dashboard`                             | Open requisitions, applications, hired                                       |
-| RC-02 | Job list         | `/jobs`                                  | Debounced search, status filter, cursor pagination                           |
+| RC-02 | Job list         | `/jobs`                                  | Debounced department filter, status filter, cursor pagination                |
 | RC-03 | Create / edit    | `/jobs/new`, `/jobs/:jobId/edit`         | Skills input; status options limited to transitions the API accepts          |
 | RC-04 | Job detail       | `/jobs/:jobId`                           | Publish and Close behind confirmation; closed jobs render read-only          |
 | RC-05 | Candidate list   | `/jobs/:jobId/candidates`                | "Load more", not numbered pages; FR4.5 score column                          |
@@ -394,7 +394,7 @@ stage configuration (RC-03).
 | Login             | `POST /v1/auth/login` → access token + refresh cookie; `GET /v1/auth/me` for identity    |
 | Session bootstrap | `POST /v1/auth/refresh` (single-flight); `POST /v1/auth/logout`                          |
 | Dashboard         | `GET /v1/jobs` per status; `GET /v1/analytics/funnel`                                    |
-| Job list          | `GET /v1/jobs?search=&status=&cursor=&limit=20`                                          |
+| Job list          | `GET /v1/jobs?department=&status=&cursor=&limit=20`                                      |
 | Job create/edit   | `POST /v1/jobs`, `PATCH /v1/jobs/:id`, `POST /v1/jobs/:id/duplicate`                     |
 | Job detail        | `GET /v1/jobs/:id`; publish/close via `PATCH /v1/jobs/:id { status }`                    |
 | Candidate list    | `GET /v1/jobs/:id/candidates?cursor=&limit=`                                             |
