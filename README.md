@@ -3,10 +3,15 @@
 AI-Powered Recruitment & Applicant Tracking System.
 B.Tech CSE final-year project · Riya Jaiswal · GD Goenka University · 2026–27
 
-A multi-tenant ATS with a working recruiter console, a role-based NestJS API, and an
-AI-screening pipeline that is **integrated but not trained**. The guiding rule of the
-build is that the interface never claims more than the data supports: every place the
-API cannot answer a question, the screen says so instead of showing a plausible number.
+A multi-tenant ATS covering the hiring loop end to end: a public careers site and
+application form, real resume parsing, a transparent deterministic match score, a
+recruiter pipeline, interview scheduling with a candidate self-service link, a hiring
+manager review console, and analytics — behind a role-based NestJS API.
+
+The guiding rule of the build is that the interface never claims more than the data
+supports. Every place the API cannot answer a question, the screen says so instead of
+showing a plausible number. **There is no trained ML model**, and the scorer says so on
+screen, in its own rationale, every time it produces a number.
 
 ---
 
@@ -22,9 +27,10 @@ API cannot answer a question, the screen says so instead of showing a plausible 
 - [Authentication and RBAC](#authentication-and-rbac)
 - [Multi-tenancy and data isolation](#multi-tenancy-and-data-isolation)
 - [Frontend architecture](#frontend-architecture)
-- [Implemented recruiter screens](#implemented-recruiter-screens)
+- [Implemented recruiter screens](#implemented-screens)
 - [Key API interactions](#key-api-interactions)
-- [Deferred screens and current limitations](#deferred-screens-and-current-limitations)
+- [Calendar integration status](#calendar-integration-status)
+- [Known limitations](#known-limitations)
 - [Running locally](#running-locally)
 - [Environment variables](#environment-variables)
 - [Build, test and verification commands](#build-test-and-verification-commands)
@@ -76,44 +82,64 @@ TalentLens splits the work along that line.
 
 ### Implemented and demonstrable
 
-| Area                    | What works                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating 7-day refresh cookie       |
-| Role-based access       | Four roles; recruiter console gated to `RECRUITER` and `ADMIN` on both client and server           |
-| Job requisitions        | List with department/status filters and cursor pagination, create, edit, publish, close, duplicate |
-| Candidate management    | Per-job candidate list, full application detail, comment thread                                    |
-| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                      |
-| Structured interviewing | Scorecards with 1–5 ratings, per-competency notes, one scorecard per reviewer per application      |
-| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance  |
-| Analytics               | Conversion funnel per stage with drop-off, ratios and median time-in-stage                         |
-| Audit trail             | Append-only log with an Admin-only read/export API                                                 |
-| Interview scheduling    | Candidate-facing scheduling links signed with a single-purpose expiring token                      |
-| Calendar integration    | Google and Microsoft OAuth connections, encrypted refresh tokens, interviewer availability         |
+| Area                    | What works                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating single-use 7-day refresh cookie             |
+| Role-based access       | Four roles enforced per route; Recruiter, Admin and Hiring Manager each have their own console surface              |
+| Public careers site     | Anonymous job list and detail, application form with resume upload, idempotent submission                           |
+| Job requisitions        | List with department/status filters and cursor pagination, create, edit, publish, close, duplicate                  |
+| Job assignments         | Assign a Hiring Manager or Admin to a requisition; drives the "assigned jobs only" rule                             |
+| Resume parsing          | Real PDF/DOCX text extraction, contact and skill extraction, per-field confidence, parser name and version recorded |
+| Match scoring           | `baseline-rules-v1` — deterministic, explainable, self-disclosing its own ceiling (see below)                       |
+| Candidate management    | Per-job candidate list, application detail, comment thread                                                          |
+| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                                       |
+| Stage history           | Every transition recorded with actor and timestamp, shown as a timeline                                             |
+| Tags                    | Free-text tags per application, case-insensitive uniqueness, plus bulk tagging from the pipeline                    |
+| Structured interviewing | Scorecards with 1–5 ratings and notes, one scorecard per reviewer per application                                   |
+| Interview scheduling    | Recruiter offers slots or books a time directly; candidate self-schedules via a signed link                         |
+| Hiring Manager console  | Review queue, assigned jobs only, candidate review with score, scorecards, comments, tags and interviews            |
+| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance                   |
+| Analytics               | Funnel with conversion and time-in-stage, time-to-hire (mean and median), source-of-hire                            |
+| Audit trail             | Append-only log with an Admin-only read and CSV/JSON export                                                         |
 
-### Integrated but not trained
+### What is deliberately _not_ claimed
 
-The parse-and-score pipeline exists end to end — BullMQ queue, worker, `parsed_profiles`,
-atomic `match_scores` writes, ranking weights, parse review. **No model is trained.**
-`apps/ai-service` serves a deterministic reference stub, `reference-stub@not-trained-v0`.
-See [Deferred screens and current limitations](#deferred-screens-and-current-limitations).
+**No machine-learning model is trained, and nothing pretends otherwise.**
+
+- **Scoring** is `baseline-rules-v1`: a transparent rule-based scorer. Only one of the six
+  ranking features (`skill_overlap`) is measured; the other five are stored as explicit
+  zeros. Because the measured feature carries a 0.30 weight, **no candidate can score
+  above 0.30**, and the rationale attached to every score states this in plain English
+  along with the fact that it is not a trained model.
+- **Parsing** is `rule-based-local v1` — pattern rules over extracted text, not an
+  NLP model. It extracts contact details and skills from a closed vocabulary. Work
+  history, education and certifications are **not** extracted, and the parser says so.
+- **Live calendar sync** requires Google/Microsoft credentials that are not present in
+  this build. See [Calendar integration status](#calendar-integration-status).
+
+`apps/ai-service` (Python) remains in the repository from the original architecture, but
+parsing and scoring now run inside the Node API — a deviation recorded in
+`docs/PRD-AMENDMENTS.md` (§I, rows A16–A17) rather than left implicit.
 
 ---
 
 ## Tech stack
 
-| Layer          | Choice                                                                |
-| -------------- | --------------------------------------------------------------------- |
-| Language       | TypeScript 5.7 (strict), Python 3.11 for the AI service               |
-| Monorepo       | pnpm 9.15.0 workspaces, Node 20+                                      |
-| Backend        | NestJS 10, Prisma 6.19.3                                              |
-| Database       | PostgreSQL 15 — 19 models, 10 migrations                              |
-| Cache / queue  | Redis 7, BullMQ                                                       |
-| Object storage | S3 (LocalStack 3 locally) for resumes                                 |
-| Passwords      | Argon2id                                                              |
-| Frontend       | React 18, Vite 5, react-router-dom, TanStack Query v5, Tailwind CSS 3 |
-| API docs       | Swagger / OpenAPI at `/api/docs`                                      |
-| Testing        | Jest — 43 API spec files                                              |
-| Tooling        | ESLint, Prettier, Husky + lint-staged                                 |
+| Layer          | Choice                                                                    |
+| -------------- | ------------------------------------------------------------------------- |
+| Language       | TypeScript 5.7 (strict), Python 3.11 for the AI service                   |
+| Monorepo       | pnpm 9.15.0 workspaces, Node 20+                                          |
+| Backend        | NestJS 10, Prisma 6.19.3                                                  |
+| Database       | PostgreSQL 15 — 20 models, 12 migrations                                  |
+| Cache / queue  | Redis 7, BullMQ                                                           |
+| Object storage | S3 (LocalStack 3 locally) for resumes                                     |
+| Passwords      | Argon2id                                                                  |
+| Frontend       | React 18, Vite 5, react-router-dom, TanStack Query v5, Tailwind CSS 3     |
+| API docs       | Swagger / OpenAPI at `/api/docs`                                          |
+| Resume text    | `pdf-parse` (PDF), `mammoth` (DOCX) — no OCR                              |
+| Calendar       | `googleapis`, `@azure/msal-node` + Microsoft Graph (credentials required) |
+| Testing        | Jest — 48 API spec files, 960 tests. **No frontend test harness yet**     |
+| Tooling        | ESLint, Prettier, Husky + lint-staged                                     |
 
 **Deliberately absent from the frontend:** no charting library, no drag-and-drop
 library, no component library, no state-management library beyond TanStack Query. The
@@ -246,12 +272,28 @@ Enforcement is in two independent places:
 - **Server** — `@Roles(...)` on controllers, checked by `RolesGuard`. This is the real
   boundary. Every route under `audit-logs` and `admin/*` is `ADMIN`-only.
 - **Client** — `RequireAuth` (redirects to `/login`, preserving the intended
-  destination) then `RequireRole` (`RECRUITER` and `ADMIN` only; anyone else gets an
-  explicit "This area is not available to you"). This is a usability layer, not
-  security: it stops a hiring manager landing on a screen whose every request would 403.
+  destination) then `RequireRole`. This is a usability layer, **not** security: it stops
+  someone landing on a screen whose every request would 403. Three gates exist:
 
-Verified: all 12 routes redirect a signed-out visitor to `/login`; `ADMIN` reaches all
-10 recruiter screens; `HIRING_MANAGER` and `CANDIDATE` are denied on all of them.
+  | Gate                | Roles                                  | Screens                                                                 |
+  | ------------------- | -------------------------------------- | ----------------------------------------------------------------------- |
+  | Recruiter workspace | `RECRUITER`, `ADMIN`                   | Dashboard, job create/edit/detail, pipeline, ranking weights, analytics |
+  | Hiring team         | `RECRUITER`, `ADMIN`, `HIRING_MANAGER` | My reviews, jobs list, candidate list, candidate detail                 |
+  | Administration      | `ADMIN`                                | Users, audit log                                                        |
+
+**What a Hiring Manager can and cannot do.** They sign in to their own console: a review
+queue (`GET /v1/me/reviews`), the jobs they are **assigned** to — narrowed server-side,
+not by the client — and a candidate review screen carrying the match score and rationale,
+scorecards, comments, tags and interviews. They cannot move stages, override a score,
+schedule an interview, create a job, read analytics or reach any admin screen; every one
+of those endpoints refuses them, and `apps/api/src/modules/jobs/hiring-manager-access.spec.ts`
+asserts all ten refusals and the seven allowances so the UI gating can never become the
+only thing protecting that data.
+
+One deliberate consequence: `GET /v1/applications/:id` excludes `HIRING_MANAGER`
+(Handoff row 13), so the Hiring Manager's candidate screen is assembled from the
+endpoints that role does hold. The resume and parsed profile are therefore **not**
+available to them, and the screen states that rather than rendering an empty panel.
 
 ---
 
@@ -347,24 +389,49 @@ order. Stage moves are available from a keyboard-operable menu, not drag-only.
 
 ---
 
-## Implemented recruiter screens
+## Implemented screens
 
-Eleven screens, all against the real API. Landing route after sign-in is `/dashboard`.
+All against the real API. The landing route after sign-in is role-aware: `/dashboard`
+for Recruiter and Admin, `/my-reviews` for a Hiring Manager.
+
+**Public — no account required**
+
+| Screen             | Route                   | Notes                                                         |
+| ------------------ | ----------------------- | ------------------------------------------------------------- |
+| Landing            | `/`                     | Marketing page; reads no API                                  |
+| Careers list       | `/careers`              | Published jobs only, decided server-side                      |
+| Job detail         | `/careers/:jobId`       | Published or closed; a draft is indistinguishable from absent |
+| Apply              | `/careers/:jobId/apply` | Resume upload with review step; `Idempotency-Key` per attempt |
+| Candidate schedule | `/schedule/:token`      | Self-service slot pick; the signed token _is_ the credential  |
+| Login              | `/login`                | Shows the API's own 401 message                               |
+
+**Recruiter / Admin**
+
+| Code  | Screen               | Route                            | Notes                                                                 |
+| ----- | -------------------- | -------------------------------- | --------------------------------------------------------------------- |
+| RC-01 | Dashboard            | `/dashboard`                     | Open requisitions, applications, hired                                |
+| RC-03 | Create / edit        | `/jobs/new`, `/jobs/:jobId/edit` | Skills input; status options limited to transitions the API accepts   |
+| RC-04 | Job detail           | `/jobs/:jobId`                   | Publish and Close behind confirmation; closed jobs render read-only   |
+| RC-07 | Score override       | (within RC-06)                   | Requires a reason (BR-02); audited as `score.overridden`              |
+| RC-08 | Ranking weights      | `/jobs/:jobId/ranking-weights`   | Six fixed features; live total against the ±0.001 server tolerance    |
+| RC-09 | Pipeline board       | `/jobs/:jobId/pipeline`          | Six columns; optimistic move with rollback                            |
+| RC-10 | Bulk actions         | (within RC-09)                   | Multi-select bulk stage change **and bulk tagging**, capped at 100    |
+| RC-11 | Interview scheduling | (within RC-06)                   | Slots or direct booking, availability, scheduling link with copy      |
+| RC-12 | Analytics funnel     | `/analytics`                     | CSS bars; `null` conversion and time values render as `—`, never `0%` |
+
+**Hiring team — Recruiter, Admin and Hiring Manager**
 
 | Code  | Screen           | Route                                    | Notes                                                                        |
 | ----- | ---------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
-| SC-01 | Login            | `/login`                                 | 12-character minimum checked client-side; shows the API's own 401 message    |
-| RC-01 | Dashboard        | `/dashboard`                             | Open requisitions, applications, hired                                       |
-| RC-02 | Job list         | `/jobs`                                  | Debounced department filter, status filter, cursor pagination                |
-| RC-03 | Create / edit    | `/jobs/new`, `/jobs/:jobId/edit`         | Skills input; status options limited to transitions the API accepts          |
-| RC-04 | Job detail       | `/jobs/:jobId`                           | Publish and Close behind confirmation; closed jobs render read-only          |
+| HM-01 | My reviews       | `/my-reviews`                            | Assigned candidates; filter by awaiting/completed                            |
+| FR6.1 | Calendar         | `/settings/calendar`                     | Connect/disconnect your own calendar; states when a provider is unconfigured |
+| RC-02 | Job list         | `/jobs`                                  | Narrowed to assigned jobs for a Hiring Manager, server-side                  |
 | RC-05 | Candidate list   | `/jobs/:jobId/candidates`                | "Load more", not numbered pages; FR4.5 score column                          |
-| RC-06 | Candidate detail | `/jobs/:jobId/candidates/:applicationId` | Application record, comment thread, scorecards                               |
-| RC-08 | Ranking weights  | `/jobs/:jobId/ranking-weights`           | Six fixed features; live total against the ±0.001 server tolerance           |
-| RC-09 | Pipeline board   | `/jobs/:jobId/pipeline`                  | Six columns; optimistic move with rollback                                   |
-| RC-10 | Bulk actions     | (within RC-09)                           | Multi-select bulk stage change, capped at the server's 100-application limit |
-| RC-12 | Analytics funnel | `/analytics`                             | CSS bars; `null` conversion and time values render as `—`, never `0%`        |
+| RC-06 | Candidate detail | `/jobs/:jobId/candidates/:applicationId` | Role-dispatched: full record for Recruiter/Admin, HM-03 for a reviewer       |
 | RC-13 | Scorecards       | (within RC-06)                           | 1–5 ratings; a duplicate scorecard surfaces the server's 409                 |
+
+**Admin only:** `/admin/users` (invite, role change, session revocation) and
+`/admin/audit` (filter by action and date, CSV/JSON export).
 
 Two implementation notes worth stating, because both are workarounds:
 
@@ -381,9 +448,13 @@ Two implementation notes worth stating, because both are workarounds:
 
 Each of these has no backing data or endpoint, so the screen states the reason instead of
 rendering a zero: total applicant count per job (RC-02), analytics export (RC-12),
-cross-job "awaiting review" count (RC-01), candidate tagging (RC-10), parsed profile,
-activity timeline and stage history (RC-06), stage filter (RC-05 / RC-09), and pipeline
+cross-job "awaiting review" count (RC-01), stage filter (RC-05 / RC-09), and pipeline
 stage configuration (RC-03).
+
+Candidate tagging, the parsed profile and stage history were on this list in earlier
+builds and are now implemented (RC-10 and RC-06). The resume and parsed profile remain
+withheld from a **Hiring Manager** specifically — see
+[Authentication and RBAC](#authentication-and-rbac).
 
 ---
 
@@ -414,51 +485,87 @@ candidate was re-ranked** rather than claiming a re-rank happened.
 
 ---
 
-## Deferred screens and current limitations
+## Calendar integration status
 
-Three specified recruiter screens are **not implemented**. Each is blocked on missing
-backend capability, not on frontend work — building them would mean inventing data.
+**The Google and Microsoft integrations are implemented but cannot sync in this build,
+because no provider credentials are configured.**
 
-### RC-07 — Score Override
+What exists and is tested: both provider adapters (`googleapis` for Google Calendar,
+MSAL + Microsoft Graph for Outlook), the OAuth authorize/complete flow, encrypted
+refresh-token storage (`calendar_connections` holds an encrypted refresh token and
+**never** an access token), free/busy reads, and event creation.
 
-Blocked: there are no `match_scores` rows in the demo tenant, and the schema has no
-`override_score` column. `PATCH /v1/applications/:id/score` exists, but with nothing to
-override there is no path to exercise or demonstrate. The candidate list already renders
-an "Overridden" badge for a score that carries the flag.
+What that means in practice, with no credentials present:
 
-### RC-11 — Interviews
+- `CalendarProviderRegistry.configured()` is empty, so a provider is treated as **absent
+  rather than broken** — `GET /v1/interviews/availability` returns `200` with every
+  interviewer listed under `notConnected`, not a 503.
+- `calendarEventId` stays `null` on every booking. Under FR6.3 that is a **complete**
+  interview, not a partial failure, and the UI says so instead of implying an invite was
+  sent.
+- **No availability is ever fabricated.** An unread calendar is reported as unknown.
 
-Blocked: there is no recruiter-visible interviewer directory. `GET /v1/admin/users` is
-`ADMIN`-only, so a recruiter cannot populate an interviewer picker. The scheduling and
-availability APIs are implemented and tested; the recruiter-facing screen that would
-drive them is not. It appears in the sidebar marked "Later".
+To enable live sync you would supply `GOOGLE_CALENDAR_CLIENT_ID` / `_SECRET` /
+`_REDIRECT_URI` and/or `MICROSOFT_CALENDAR_CLIENT_ID` / `_SECRET` / `_REDIRECT_URI` /
+`_TENANT` (see `.env.example`), which requires a Google Cloud project with the Calendar
+API enabled and/or a Microsoft Entra ID app registration. **This has not been exercised
+against live provider accounts** — the OAuth handshake and free/busy reads are written and
+tested against fakes, never run against a real Google or Microsoft account.
 
-### RC-14 — Parse Review Queue
+There **is** a calendar-connections screen at `/settings/calendar`, reachable from the
+sidebar for Recruiters, Hiring Managers and Administrators. With no credentials present it
+states that the provider is not configured on this server and offers no Connect button,
+because that button could only answer 503.
 
-Blocked: no resume parser runs. `parsed_profiles` is empty and `parseStatus` is always
-`PENDING`, so a review queue would list nothing. There is also no cross-job aggregate
-endpoint — `GET /v1/jobs/:id/parse-review` is per-job only. Also marked "Later".
+---
 
-### Other known gaps
+## Known limitations
 
-- **No AI model.** PRD §19.2 requires consent-gated historical application data,
-  recruiter accept/reject/hire labels, a licensed resume corpus, a human-verified golden
-  NER dataset and an access-restricted fairness dataset. None exists here, so §19.6's
-  promotion gates cannot be evaluated and its fairness gate has no override path.
-  `reference-stub@not-trained-v0` is not a trained model, not validated, not promotable,
-  and not evidence of parsing, ranking or fairness performance.
-- **No stage-history read endpoint**, so RC-06 cannot show an activity timeline.
-- **No analytics export endpoint**, so RC-12 offers no Export.
-- **No tag endpoint or column**, so RC-10 offers no Tag action.
-- **No frontend test suite.** `apps/web`'s `test` script is a placeholder; verification
-  was done by typecheck, lint, build and a scripted browser QA pass.
-- **UUID validation is inconsistent** between `@IsUUID('4')` in DTOs and the unversioned
-  `ParseUUIDPipe` in params. A non-v4 UUID is accepted by one and rejected by the other;
-  a seeded job with a non-v4 id is reachable but cannot be applied to. Not fixed here —
-  it touches the API contract, which is outside a documentation change.
-- **Calendar OAuth is unconfigured locally.** Without provider credentials the calendar
-  connection flow cannot be demonstrated. A provider with no credentials is treated as
-  absent rather than as an outage: availability reports `notConnected` instead of 503.
+Stated plainly, because the point of the build is that it does not overclaim.
+
+**No trained model.** PRD §19.2 requires consent-gated historical application data,
+recruiter accept/reject/hire labels, a licensed resume corpus, a human-verified golden
+NER dataset and an access-restricted fairness dataset. None exists here, so §19.6's
+promotion gates cannot be evaluated. `baseline-rules-v1` is a deterministic rule-based
+scorer, not a model, not validated, and not evidence of ranking or fairness performance.
+
+**Scoring measures one feature of six.** Only `skill_overlap` is computed; the other five
+are explicit zeros. The effective maximum score is therefore **0.30**, and the rationale
+on every score discloses it.
+
+**Parsing is shallow and has no OCR.** Contact details and a closed skill vocabulary are
+extracted; work history, education and certifications are not. A scanned/image-only PDF
+yields no text and reports the limitation rather than failing silently.
+
+**Not built:**
+
+- **RC-14 parse-review queue** — `GET /v1/jobs/:id/parse-review` and
+  `PATCH /v1/parsed-profiles/:id` exist and are tested, but there is no screen; the nav
+  entry renders disabled. There is also no cross-job aggregate endpoint.
+- **RC-11 as a standalone screen** — interviews are arranged from the candidate page,
+  where they belong. The API exposes interviews only per application
+  (`GET /v1/applications/:id/interviews`), so a tenant-wide Interviews screen has nothing
+  to list; the nav entry stays disabled for that reason.
+- **Rescheduling** — an interview can be cancelled (`POST /v1/interviews/:id/cancel`) but
+  not moved; there is no un-cancel route, so a new interview is arranged instead.
+- **Cancelling does not remove an external calendar event.** `CalendarProvider` has no
+  delete, so `calendar_event_id` is left intact as a true record of what was created and
+  the UI says the invitation must be withdrawn by hand.
+- **Assignment management UI** — `POST`/`DELETE /v1/jobs/:id/assignments` are implemented
+  and tested, but assigning a Hiring Manager is currently an API call, not a screen.
+- **No email.** There is no mailer in the repository. The candidate scheduling link must
+  be copied and sent by the recruiter, and the UI states this rather than implying
+  delivery.
+- **No frontend test suite.** `apps/web`'s `test` script is a placeholder. Frontend
+  verification is typecheck, lint and build; the security boundaries the UI relies on are
+  asserted at the API level instead.
+- **Interviews are not audited.** Handoff §I Table I.1 names no interview event, so none
+  is emitted rather than inventing vocabulary.
+- **Scheduling tokens are not revocable** before their derived expiry, and are not
+  single-use. Expiry is bounded by the last offered slot.
+- **`APP_DATABASE_URL` is optional locally.** If unset the API connects as the owner
+  role and logs a warning that `audit_logs` append-only enforcement is **not** active.
+  Set it to the restricted role to exercise that guarantee.
 
 ---
 
@@ -569,7 +676,7 @@ The demo job's id is a **real v4 UUID**, which is load-bearing rather than cosme
 `SubmitApplicationDto` and `FunnelQueryDto` both validate with `@IsUUID('4')`, so the
 baseline job's `…0010` id — version nibble `0` — is rejected by `POST /v1/applications`
 and by the analytics job filter. This is the UUID inconsistency listed under
-[current limitations](#deferred-screens-and-current-limitations).
+[known limitations](#known-limitations).
 
 ### What the seed deliberately does not create
 
@@ -586,25 +693,29 @@ and by the analytics job filter. This is the UUID inconsistency listed under
 
 After `prisma:migrate` and `prisma:seed` the console has meaningful data immediately —
 no manual setup, no SQL. **RC-01, RC-02, RC-05, RC-06, RC-09, RC-10, RC-12 and RC-13**
-are all populated; RC-03, RC-04 and RC-08 never depended on candidate data. RC-07, RC-11
-and RC-14 remain unavailable for the backend reasons given under
-[deferred screens](#deferred-screens-and-current-limitations) — the seed changes nothing
-about them.
+are all populated; RC-03, RC-04 and RC-08 never depended on candidate data.
 
-Optionally, to exercise the public intake path as well, submit a live application against
-the **Full-Stack Engineer** job (its id is printed by RC-04's URL). `POST /v1/applications`
-is `@Public()`, so no token is needed; `jobId`, `fullName` and `email` are required, and
-`phone`, `source` and a `resume` file are optional:
+RC-07 (score override) and interview scheduling are now built and reachable, but the
+seed creates **no `match_scores` and no resumes**, so a score only appears once AI
+scoring is enabled for a job and a resume is actually uploaded and parsed. RC-14 (parse
+review) has no screen — see [known limitations](#known-limitations).
 
-```bash
-curl -X POST http://localhost:3000/v1/applications \
-  -H 'Content-Type: application/json' \
-  -d '{"jobId":"<the v4 job id>","fullName":"Demo Candidate","email":"demo@example.com"}'
-```
+To exercise the public intake path, apply through the careers site at
+`http://localhost:5173/careers` — no account is needed.
 
-An attached resume is stored but **not parsed** — no parser runs in this build — so
-`parseStatus` stays `PENDING` and no score is produced. That is the expected result, not
-a failure.
+**To see parsing and scoring actually run**, two things must be true:
+
+1. Start the API with `RESUME_WORKER_ENABLED=true`. The worker is opt-in because it holds
+   a Redis connection; with it off, an uploaded resume is stored and `parseStatus` stays
+   `PENDING`, which is expected rather than a failure.
+2. Enable AI scoring for the job. It is **off by default** on every job (BR-04), and only
+   an Administrator can turn it on:
+   `PATCH /v1/admin/jobs/:id/ai-scoring` with `{"enabled": true}`. Scoring runs as part
+   of parsing, so enable it _before_ uploading.
+
+With both in place, uploading a text-based PDF produces a `parsed_profiles` row with
+extracted contact details and skills, and a `match_scores` row whose rationale names the
+matched skills and discloses the 0.30 ceiling.
 
 The click path:
 
@@ -619,11 +730,20 @@ The click path:
 | 7    | Pipeline (RC-09/10)     | **Pipeline** tab; move a card, or multi-select for bulk |
 | 8    | Ranking weights (RC-08) | **Ranking weights** tab                                 |
 | 9    | Analytics (RC-12)       | Sidebar **Analytics**                                   |
+| 10   | Careers site            | Sign out → http://localhost:5173/careers → apply        |
+| 11   | Schedule an interview   | Candidate detail → **Schedule interview** → offer slots |
+| 12   | Candidate self-schedule | Copy the link → open in a private window → confirm      |
+| 13   | Hiring Manager console  | Sign in as `hiring.manager@talentlens.local`            |
+
+The seed assigns the Hiring Manager to both jobs, so step 13 works immediately. Assigning
+someone to a _new_ job is currently an API call — `POST /v1/jobs/:id/assignments` with
+`{"userId": "<user id>"}` as a Recruiter or Admin — because that screen is not built yet.
 
 Every step is reachable by clicking — no URL typing required. The sidebar shows
-**Review queue** (RC-14) and **Interviews** (RC-11) as disabled entries marked "Later",
-which is the honest presentation of their
-[backend blockers](#deferred-screens-and-current-limitations).
+**Review queue** (RC-14) and **Interviews** (RC-11) as disabled entries. RC-14 has no
+screen yet; RC-11's capability exists but is reached from the candidate page, because no
+endpoint lists interviews across a tenant. Both reasons are given under
+[known limitations](#known-limitations).
 
 ### Running the apps separately
 
@@ -726,9 +846,31 @@ git diff --check            # No whitespace errors in the diff
 `tsc -b` and `vite build` must be run from `apps/web`; there is no root `tsconfig.json`,
 so `npx tsc -b` at the repository root fails with `TS5083`.
 
-A scripted end-to-end browser pass covers signed-out redirects on all routes, role
-denial for `HIRING_MANAGER` and `CANDIDATE`, deep-link reload on every screen, 404 and
-error states, loading states, and an assertion that read-only screens issue no writes.
+**Current results.** Every gate below passes as of the latest commit:
+
+| Gate                                  | Result                                    |
+| ------------------------------------- | ----------------------------------------- |
+| API test suite (`--maxWorkers=2`)     | **960 passed / 960**, 48 suites, ~35s     |
+| `tsc --noEmit` (api)                  | clean                                     |
+| `nest build`                          | clean                                     |
+| `tsc -b` (web)                        | clean                                     |
+| `vite build`                          | 432.18 kB (121.88 kB gzip) + 31.61 kB CSS |
+| `eslint apps/api` · `eslint apps/web` | 0 problems                                |
+| `prettier --check .`                  | clean                                     |
+| `git diff --check`                    | clean                                     |
+
+**Run the API suite with `--maxWorkers=2`.** Jest defaults to one worker per core, and
+each worker boots a full Nest application plus a Prisma pool; on an 8-core machine that
+drives load high enough for tests to exceed their 5-second timeout and fail spuriously.
+Bounded workers run the same suite reliably in about 33 seconds.
+
+Two further requirements for a green run: **Postgres must be up** (`docker compose up -d`)
+and **nothing may be listening on port 3000** — a separately running API consumes jobs
+from the same Redis queue the tests use.
+
+The frontend has no automated tests. The role boundaries the UI depends on are asserted
+against the API instead, in `hiring-manager-access.spec.ts` and
+`authorization.integration.spec.ts`.
 
 ---
 
@@ -749,14 +891,25 @@ From PRD §13. These are constraints on implementation, not features:
 
 ## Phase status
 
-| Phase  | Scope                                                     | Status                  |
-| ------ | --------------------------------------------------------- | ----------------------- |
-| P1     | Requirements & UX design                                  | ✅ Complete             |
-| P2     | Core platform — jobs, applications, pipeline, RBAC, audit | ✅ Complete (M2.10)     |
-| **P3** | **AI screening — parsing, ranking, explainability**       | **◑ Integration only**  |
-| P4     | QA, accessibility, fairness testing                       | ⛔ Blocked on P3 models |
-| P5     | Beta                                                      | ⏳                      |
-| P6     | General availability                                      | ⏳                      |
+| Phase  | Scope                                                     | Status                     |
+| ------ | --------------------------------------------------------- | -------------------------- |
+| P1     | Requirements & UX design                                  | ✅ Complete                |
+| P2     | Core platform — jobs, applications, pipeline, RBAC, audit | ✅ Complete (M2.10)        |
+| **P3** | **AI screening — parsing, ranking, explainability**       | **◑ Rule-based, no model** |
+| P4     | QA, accessibility, fairness testing                       | ⛔ Blocked on P3 models    |
+| P5     | Beta                                                      | ⏳                         |
+| P6     | General availability                                      | ⏳                         |
 
-Recruiter console: 11 of 14 specified screens implemented. RC-07, RC-11 and RC-14 are
-deferred on backend capability, as detailed above.
+P3 is marked partial deliberately. Parsing and scoring **run for real** — a resume is
+extracted and a score is written with a stored rationale — but both are rule-based. No
+model is trained, so the fairness and promotion gates of §19.6 cannot be evaluated, which
+is what keeps P4 blocked.
+
+Recruiter console: 13 of 14 specified screens implemented. Only **RC-14** (parse review
+queue) has no screen. RC-11's capability is built but lives on the candidate page rather
+than a standalone route, for the reason given under
+[known limitations](#known-limitations).
+
+FR coverage: FR1, FR2, FR5, FR7 and FR8 complete; FR3 complete except the review-queue
+screen; FR4 implemented as a rule-based baseline rather than a model; FR6.2 and FR6.3
+complete, FR6.1 blocked on provider credentials.
