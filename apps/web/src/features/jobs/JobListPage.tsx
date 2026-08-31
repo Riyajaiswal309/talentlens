@@ -1,5 +1,6 @@
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../auth/AuthContext';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, SkeletonTable } from '../../components/Skeleton';
@@ -27,7 +28,14 @@ import {
  * The Create, Duplicate and Close actions belong to RC-03 and are out of the
  * agreed scope; no button is shown for a screen that does not exist.
  */
+/** True for the reviewer persona, whose recruiter controls would all 403. */
+function useReviewerOnly(): boolean {
+  const { user } = useAuth();
+  return user?.role === 'HIRING_MANAGER';
+}
+
 export function JobListPage() {
+  const reviewerOnly = useReviewerOnly();
   const [status, setStatus] = useState<JobStatus | ''>('');
   const [departmentInput, setDepartmentInput] = useState('');
 
@@ -56,8 +64,14 @@ export function JobListPage() {
       <PageHeader
         code="RC-02"
         title="Jobs"
-        description="Requisitions in your company. Open one to see its candidates."
-        actions={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
+        description={
+          reviewerOnly
+            ? 'The requisitions you are assigned to. Open one to review its candidates.'
+            : 'Requisitions in your company. Open one to see its candidates.'
+        }
+        // `POST /v1/jobs` is Recruiter and Admin; a reviewer is offered no
+        // control that would 403.
+        actions={reviewerOnly ? undefined : <ButtonLink to="/jobs/new">Create job</ButtonLink>}
       />
 
       <Card className="mb-5 p-4">
@@ -146,6 +160,7 @@ function JobListBody({
   onNext: (cursor: string) => void;
   onBack: () => void;
 }) {
+  const reviewerOnly = useReviewerOnly();
   // FIRST LOAD ONLY. `isPending` is true when there is nothing cached to show;
   // a later page keeps the previous rows visible and dims them instead.
   if (query.isPending) {
@@ -182,11 +197,16 @@ function JobListBody({
       />
     ) : (
       <EmptyState
-        title="No jobs yet"
-        description="Requisitions your company creates will appear here."
+        title={reviewerOnly ? 'You have no assigned jobs' : 'No jobs yet'}
+        description={
+          reviewerOnly
+            ? 'A recruiter assigns you to a job when they want your review. Assigned jobs appear here.'
+            : 'Requisitions your company creates will appear here.'
+        }
         // Flow 1: "First-time RC-02 shows an empty state with a single Create
-        // job CTA." One action, because there is nothing else to do here.
-        action={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
+        // job CTA." One action, because there is nothing else to do here —
+        // and a reviewer has none, since they cannot create a requisition.
+        action={reviewerOnly ? undefined : <ButtonLink to="/jobs/new">Create job</ButtonLink>}
       />
     );
   }
@@ -247,14 +267,17 @@ function JobListBody({
 }
 
 function JobRow({ job }: { job: JobResponse }) {
+  const reviewerOnly = useReviewerOnly();
   const skills = toSkills(job.requiredSkills);
 
   return (
     <div className="group flex flex-wrap items-start justify-between gap-4 px-5 py-4 transition-colors hover:bg-neutral-50">
       <div className="min-w-0 flex-1">
         {/* The link is the title — "Open job" is RC-02's primary action. */}
+        {/* RC-03 reads the funnel, which refuses a reviewer — so their row
+            opens the candidates list, which is the screen they came for. */}
         <Link
-          to={`/jobs/${job.id}`}
+          to={reviewerOnly ? `/jobs/${job.id}/candidates` : `/jobs/${job.id}`}
           className="rounded-sm text-base font-semibold text-neutral-900 transition-colors group-hover:text-primary-700"
         >
           {job.title}

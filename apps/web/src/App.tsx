@@ -1,6 +1,6 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router-dom';
 import { RequireAuth } from './auth/RequireAuth';
-import { RequireRole } from './auth/RequireRole';
+import { RequireRole, HIRING_TEAM_ROLES } from './auth/RequireRole';
 import { RecruiterLayout } from './layouts/RecruiterLayout';
 import { LoginPage } from './features/auth/LoginPage';
 import { LandingPage } from './features/marketing/LandingPage';
@@ -13,13 +13,15 @@ import { JobDetailPage } from './features/jobs/JobDetailPage';
 import { JobCreatePage } from './features/jobs/JobCreatePage';
 import { JobEditPage } from './features/jobs/JobEditPage';
 import { CandidateListPage } from './features/candidates/CandidateListPage';
-import { CandidateDetailPage } from './features/candidates/CandidateDetailPage';
+import { CandidateRoute } from './features/candidates/CandidateRoute';
 import { FunnelPage } from './features/analytics/FunnelPage';
 import { PipelineBoard } from './features/pipeline/PipelineBoard';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RankingWeightsPage } from './features/jobs/RankingWeightsPage';
 import { AdminUsersPage } from './features/admin/AdminUsersPage';
 import { AuditLogPage } from './features/admin/AuditLogPage';
+import { MyReviewsPage } from './features/reviews/MyReviewsPage';
+import { RoleLanding } from './auth/RoleLanding';
 
 /**
  * Route table.
@@ -73,7 +75,7 @@ export function App() {
             {/* RC-01. Tenant-wide, like RC-12 — it summarises every requisition
                 rather than sitting inside one. */}
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/jobs" element={<JobListPage />} />
+
             {/*
               Declared before `/jobs/:jobId` for readability. React Router v6
               ranks a static segment above a dynamic one regardless of order, so
@@ -83,25 +85,44 @@ export function App() {
             <Route path="/jobs/new" element={<JobCreatePage />} />
             <Route path="/jobs/:jobId" element={<JobDetailPage />} />
             <Route path="/jobs/:jobId/edit" element={<JobEditPage />} />
-            <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
+
             {/* RC-09. A tab of the job hub, so it sits under the job's path. */}
             <Route path="/jobs/:jobId/pipeline" element={<PipelineBoard />} />
             {/* RC-08. Also a job tab — the weighting is per requisition. */}
             <Route path="/jobs/:jobId/ranking-weights" element={<RankingWeightsPage />} />
-            {/*
-              The parameter is an APPLICATION id, not a person's id: the record
-              being read is one candidate's application to THIS job. Named for
-              what the URL reads as, documented for what it holds.
-            */}
-            <Route
-              path="/jobs/:jobId/candidates/:applicationId"
-              element={<CandidateDetailPage />}
-            />
 
             {/* RC-12. Tenant-wide, so it sits beside /jobs rather than under a
                 job — the funnel is not scoped to one requisition unless the
                 caller filters it to one. */}
             <Route path="/analytics" element={<FunnelPage />} />
+          </Route>
+        </Route>
+
+        {/*
+          THE WHOLE HIRING TEAM (§24.2) — a SIBLING of the recruiter gate so it
+          widens the role rather than inheriting RECRUITER|ADMIN.
+
+          These four screens call only endpoints that already name
+          HIRING_MANAGER on their `@Roles`, and `GET /v1/jobs` narrows itself to
+          the caller's assignments server-side. The route grants nothing: an
+          unassigned job is a 404 from `JobAssignmentGuard` whatever this table
+          says, and a Hiring Manager who types `/analytics` still meets the
+          recruiter gate above.
+        */}
+        <Route element={<RequireRole allow={HIRING_TEAM_ROLES} />}>
+          <Route element={<RecruiterLayout />}>
+            <Route path="/my-reviews" element={<MyReviewsPage />} />
+            <Route path="/jobs" element={<JobListPage />} />
+            <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
+            {/*
+              The parameter is an APPLICATION id, not a person's id: the record
+              being read is one candidate's application to THIS job.
+
+              ONE PATH, TWO SCREENS. `CandidateRoute` picks RC-06 or HM-03 by
+              role — declaring the path twice under different gates would let
+              the recruiter entry match first and refuse the Hiring Manager.
+            */}
+            <Route path="/jobs/:jobId/candidates/:applicationId" element={<CandidateRoute />} />
           </Route>
         </Route>
 
@@ -128,7 +149,7 @@ export function App() {
         `RequireRole`'s refusal: one rule covers both cases, and the redirect
         itself grants nothing.
       */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<RoleLanding />} />
     </Routes>
   );
 }

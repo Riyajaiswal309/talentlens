@@ -64,6 +64,31 @@ export const RECRUITER_NAVIGATION: readonly NavigationItem[] = [
 ];
 
 /**
+ * Hiring Manager navigation (§24.2, HM-01…HM-05).
+ *
+ * A REPLACEMENT FOR THE RECRUITER LIST, NOT AN ADDITION TO IT. §24.2 scopes
+ * this persona to assessment rather than record-keeping, and the endpoints
+ * agree: analytics, ranking weights, the review queue's pipeline and every
+ * admin route refuse HIRING_MANAGER. Showing those entries disabled — the way
+ * RC-11 and RC-14 are shown to a recruiter — would advertise a surface this
+ * role is never getting, which is a different thing from one not built yet.
+ *
+ * Jobs needs no separate HM screen: `GET /v1/jobs` narrows itself to the
+ * caller's assignments server-side, so the recruiter list renders the right
+ * rows for a Hiring Manager without knowing anything about roles.
+ */
+export const HM_NAVIGATION: readonly NavigationItem[] = [
+  {
+    code: 'HM-01',
+    label: 'My reviews',
+    to: '/my-reviews',
+    matchPrefix: '/my-reviews',
+    icon: InboxIcon,
+  },
+  { code: 'HM-02', label: 'Jobs', to: '/jobs', matchPrefix: '/jobs', icon: BriefcaseIcon },
+];
+
+/**
  * Administrator-only navigation (FR8.1, FR8.3, FR8.4).
  *
  * A SEPARATE LIST, rendered only for ADMIN. Showing these to a Recruiter and

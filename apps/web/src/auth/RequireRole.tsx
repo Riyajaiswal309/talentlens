@@ -14,6 +14,23 @@ import { useAuth } from './AuthContext';
  */
 export const RECRUITER_APP_ROLES: readonly UserRole[] = ['RECRUITER', 'ADMIN'];
 
+/**
+ * Surfaces the whole hiring team shares (§24.2).
+ *
+ * A Hiring Manager reaches these because the API already lets them: `GET
+ * /v1/jobs` narrows itself to their assignments server-side, and candidates,
+ * scorecards, comments, tags and interviews all name HIRING_MANAGER on their
+ * @Roles. This list does not GRANT anything — every one of those endpoints
+ * enforces the same rule again, and `JobAssignmentGuard` refuses an unassigned
+ * job with a 404 whatever the client believes. It exists so the app does not
+ * show a Hiring Manager a door the server would slam.
+ *
+ * Deliberately NOT here: pipeline, ranking weights, analytics and the admin
+ * screens. §24.2 keeps that persona on assessment rather than record-keeping,
+ * and their endpoints refuse HM regardless.
+ */
+export const HIRING_TEAM_ROLES: readonly UserRole[] = ['RECRUITER', 'ADMIN', 'HIRING_MANAGER'];
+
 function isKnownRole(role: string): role is UserRole {
   return (USER_ROLES as readonly string[]).includes(role);
 }

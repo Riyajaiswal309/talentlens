@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom';
+import { useAuth } from '../../auth/AuthContext';
 import { useBreadcrumbLabel } from '../../layouts/Breadcrumbs';
 import { Skeleton } from '../../components/Skeleton';
 import { Notice } from '../../components/ui';
@@ -131,23 +132,41 @@ function Tab({
  * span rather than a link to a route that does not exist.
  */
 function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: JobTab }) {
+  /*
+   * A Hiring Manager sees Candidates only.
+   *
+   * Overview (RC-03) reads `GET /v1/analytics/funnel`, Pipeline is stage
+   * mechanics and Ranking weights is `PUT …/ranking-weights` — all Recruiter
+   * and Admin. §24.2 keeps this persona on assessment, so the tabs are omitted
+   * rather than rendered disabled: disabled implies "not yet", and these are
+   * never coming for this role.
+   */
+  const { user } = useAuth();
+  const reviewerOnly = user?.role === 'HIRING_MANAGER';
+
   return (
     <nav aria-label="Job sections" className="mt-6 border-b border-neutral-200">
       <ul className="flex gap-6 overflow-x-auto">
-        <Tab to={`/jobs/${jobId}`} end active={activeTab === 'overview'}>
-          Overview
-        </Tab>
+        {!reviewerOnly && (
+          <Tab to={`/jobs/${jobId}`} end active={activeTab === 'overview'}>
+            Overview
+          </Tab>
+        )}
         <Tab to={`/jobs/${jobId}/candidates`} active={activeTab === 'candidates'}>
           Candidates
         </Tab>
-        <Tab to={`/jobs/${jobId}/pipeline`} active={activeTab === 'pipeline'}>
-          Pipeline
-        </Tab>
+        {!reviewerOnly && (
+          <Tab to={`/jobs/${jobId}/pipeline`} active={activeTab === 'pipeline'}>
+            Pipeline
+          </Tab>
+        )}
         {/* RC-08. Its own tab rather than a control inside RC-05: the
             weighting belongs to the job, not to one candidate list. */}
-        <Tab to={`/jobs/${jobId}/ranking-weights`} active={activeTab === 'weights'}>
-          Ranking weights
-        </Tab>
+        {!reviewerOnly && (
+          <Tab to={`/jobs/${jobId}/ranking-weights`} active={activeTab === 'weights'}>
+            Ranking weights
+          </Tab>
+        )}
         <li>
           <span
             aria-disabled="true"

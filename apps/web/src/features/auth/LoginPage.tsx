@@ -25,6 +25,17 @@ const MIN_PASSWORD_LENGTH = 12;
  */
 const DEFAULT_DESTINATION = '/dashboard';
 
+/**
+ * Where a role lands when no deep link brought them here.
+ *
+ * A Hiring Manager has no dashboard: RC-01 reads `GET /v1/analytics/funnel`,
+ * which is Recruiter and Admin only, so sending them to `/dashboard` would
+ * greet them with a 403 on sign-in. Their equivalent is the review queue.
+ */
+function destinationFor(role: string | undefined): string {
+  return role === 'HIRING_MANAGER' ? '/my-reviews' : DEFAULT_DESTINATION;
+}
+
 interface LocationState {
   from?: { pathname?: string };
 }
@@ -38,7 +49,7 @@ interface LocationState {
  * link here would promise a screen that does not exist.
  */
 export function LoginPage() {
-  const { status, signIn } = useAuth();
+  const { status, user, signIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -57,7 +68,7 @@ export function LoginPage() {
   // than showing a form they cannot use.
   if (status === 'authenticated') {
     const from = (location.state as LocationState | null)?.from?.pathname;
-    return <Navigate to={from ?? DEFAULT_DESTINATION} replace />;
+    return <Navigate to={from ?? destinationFor(user?.role)} replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -75,9 +86,14 @@ export function LoginPage() {
 
     setSubmitting(true);
     try {
-      await signIn(email.trim(), password);
+      const principal = await signIn(email.trim(), password);
       const from = (location.state as LocationState | null)?.from?.pathname;
-      navigate(from ?? DEFAULT_DESTINATION, { replace: true });
+      /*
+       * `principal` rather than the context's `user`: `signIn` resolves with the
+       * authenticated identity, and reading `user` here would still hold the
+       * pre-sign-in value on this render.
+       */
+      navigate(from ?? destinationFor(principal.role), { replace: true });
     } catch (error) {
       /*
        * The server's own words. §23.1 gives every failure a `detail` written to

@@ -1,17 +1,16 @@
-import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, Skeleton, SkeletonText } from '../../components/Skeleton';
-import { CalendarIcon, DocumentIcon } from '../../components/icons';
-import { Avatar, Badge, Card, CardHeader, Chip, Notice, buttonClass } from '../../components/ui';
+import { DocumentIcon } from '../../components/icons';
+import { Avatar, Badge, Card, CardHeader, Chip, Notice } from '../../components/ui';
 import { useBreadcrumbLabel } from '../../layouts/Breadcrumbs';
 import { useJob } from '../jobs/useJobs';
-import { ScheduleInterviewForm } from '../interviews/ScheduleInterviewForm';
 import { CommentThread } from './CommentThread';
 import { ScorecardList } from './ScorecardList';
 import { TagPanel } from './TagPanel';
-import { ScoreOverrideForm } from './ScoreOverrideForm';
-import { formatStage, type WireScore } from './useJobCandidates';
+import { ScorePanel } from './ScorePanel';
+import { InterviewPanel } from './InterviewPanel';
+import { formatStage } from './useJobCandidates';
 import {
   PARSE_REVIEW_THRESHOLD,
   useApplication,
@@ -19,7 +18,6 @@ import {
   useComments,
   useScorecards,
   type ApplicationDetailResponse,
-  type InterviewResponse,
 } from './useApplication';
 
 /**
@@ -167,112 +165,6 @@ export function CandidateDetailPage() {
   );
 }
 
-/**
- * Score and rationale — one unit (BR-02, NFR7).
- *
- * The rationale is never optional: `WireScore` requires it, so the UI cannot
- * render a number without the reason for it even by accident.
- */
-function ScorePanel({
-  score,
-  aiScoringEnabled,
-  jobLoading,
-  applicationId,
-}: {
-  score: WireScore | null;
-  /** `undefined` until the job's flag is known. */
-  aiScoringEnabled: boolean | undefined;
-  jobLoading: boolean;
-  applicationId: string | undefined;
-}) {
-  /*
-   * WAIT RATHER THAN GUESS. Until the job answers, neither "disabled" nor "no
-   * score" can be asserted, and picking either shows the recruiter a claim that
-   * is then retracted. The skeleton occupies the same panel so nothing shifts
-   * when the real state arrives.
-   */
-  if (jobLoading) {
-    return (
-      <Card className="p-5">
-        <div role="status" aria-live="polite" aria-busy="true">
-          <span className="sr-only">Loading score status…</span>
-          <Skeleton className="h-[20px] w-40" />
-          <div className="mt-3">
-            <SkeletonText lines={2} />
-          </div>
-        </div>
-      </Card>
-    );
-  }
-
-  // Only a definitive `false` is FR4.5's disabled state.
-  if (aiScoringEnabled === false) {
-    return (
-      // §8.2 assigns info/700 to AI-disabled notices. Not a warning: nothing is
-      // wrong, the feature is switched off for this job.
-      <Notice tone="info" title="AI scoring is disabled">
-        AI scoring is disabled for this job by your administrator, so this application has no score
-        and no rationale. Assess the candidate from their resume and the team&rsquo;s scorecards.
-      </Notice>
-    );
-  }
-
-  if (!score) {
-    // The job expects a score and none came back — SY-02's reading rather than
-    // FR4.5's. Stated, not left as an empty panel.
-    return (
-      <Card>
-        <CardHeader title="Score" />
-        <p className="p-5 text-sm text-neutral-500">
-          No score is available for this application yet.
-        </p>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader
-        title="Score and rationale"
-        action={score.overridden ? <Badge tone="warning">Overridden</Badge> : undefined}
-      />
-      <div className="p-5">
-        {/*
-          §8.2's semantic rule: magnitude uses the neutral/primary ramp, never
-          success/danger — red on a low score would read as a rejection
-          recommendation the system is forbidden to make (BR-01).
-        */}
-        <p className="font-mono text-3xl font-semibold text-neutral-900">
-          {score.composite.toFixed(2)}
-        </p>
-        <p className="mt-2 max-w-[70ch] text-sm leading-relaxed text-neutral-700">
-          {score.rationale.summary}
-        </p>
-
-        {score.rationale.factors.length > 0 && (
-          <ul className="mt-4 space-y-2 border-t border-neutral-200 pt-4">
-            {score.rationale.factors.map((factor) => (
-              <li key={factor.feature} className="flex justify-between gap-4 text-sm">
-                <span className="text-neutral-700">{factor.feature}</span>
-                <span className="font-mono text-neutral-900">
-                  {/* The direction is the provider's own word; not recomputed
-                      from the sign, which would be a second source of truth. */}
-                  {factor.direction} {factor.contribution.toFixed(2)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <p className="mt-4 font-mono text-xs text-neutral-400">Model {score.modelVersion}</p>
-
-        {/* FR4.3 — offered only here, where a score actually exists to change. */}
-        <ScoreOverrideForm applicationId={applicationId} score={score} />
-      </div>
-    </Card>
-  );
-}
-
 /** What the API does hold about the application itself. */
 function ApplicationFacts({ detail }: { detail: ApplicationDetailResponse }) {
   return (
@@ -309,145 +201,6 @@ function ApplicationFacts({ detail }: { detail: ApplicationDetailResponse }) {
           <p className="mt-2 text-sm text-neutral-400">
             No resume was attached to this application.
           </p>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-/**
- * Interviews for this application, and the control that arranges one (RC-11).
- *
- * SCHEDULING LIVES HERE RATHER THAN ON ITS OWN ROUTE. An interview is always
- * *for* an application, and no endpoint lists interviews across a tenant — a
- * top-level screen would have nothing to show. The form is opened in place so
- * the recruiter keeps the candidate's record in view while choosing times.
- *
- * ROLE IS ALREADY SETTLED BY THE ROUTER. This page sits behind `RequireRole`
- * with its default `RECRUITER_APP_ROLES` (Recruiter and Admin) — exactly the
- * roles `POST /v1/interviews` and `GET /v1/interviewers` allow — so no
- * additional role check is needed or attempted here.
- */
-function InterviewPanel({
-  applicationId,
-  query,
-}: {
-  applicationId: string;
-  query: {
-    isPending: boolean;
-    isError: boolean;
-    error: unknown;
-    data: InterviewResponse[] | undefined;
-    refetch: () => void;
-  };
-}) {
-  const [scheduling, setScheduling] = useState(false);
-
-  return (
-    <Card>
-      <CardHeader
-        title="Interviews"
-        action={
-          // Only when the list has something in it — an empty panel carries its
-          // own call to action below, and two identical buttons is one too many.
-          !scheduling && !query.isPending && !query.isError && (query.data?.length ?? 0) > 0 ? (
-            <button
-              type="button"
-              onClick={() => setScheduling(true)}
-              className={buttonClass('secondary', 'sm')}
-            >
-              Schedule interview
-            </button>
-          ) : undefined
-        }
-      />
-      <div className="p-5">
-        {scheduling && (
-          <div className="mb-5 border-b border-neutral-200 pb-5">
-            <ScheduleInterviewForm
-              applicationId={applicationId}
-              onDone={() => setScheduling(false)}
-            />
-          </div>
-        )}
-
-        {query.isPending && (
-          <div role="status" aria-live="polite" aria-busy="true">
-            <span className="sr-only">Loading interviews…</span>
-            <SkeletonText lines={2} />
-          </div>
-        )}
-
-        {query.isError && (
-          <ErrorState
-            error={query.error}
-            title="Interviews could not be loaded"
-            onRetry={() => query.refetch()}
-          />
-        )}
-
-        {!query.isPending && !query.isError && (query.data?.length ?? 0) === 0 && (
-          <div className="flex flex-col items-center py-4 text-center">
-            <span className="rounded-full bg-neutral-100 p-3 text-neutral-400">
-              <CalendarIcon />
-            </span>
-            <p className="mt-3 text-sm font-medium text-neutral-700">No interviews arranged yet</p>
-            <p className="mt-1 max-w-[34ch] text-xs leading-relaxed text-neutral-500">
-              Offer the candidate a choice of times, or record a time you have already agreed.
-            </p>
-            {!scheduling && (
-              <button
-                type="button"
-                onClick={() => setScheduling(true)}
-                className={`${buttonClass('primary', 'sm')} mt-3`}
-              >
-                Schedule interview
-              </button>
-            )}
-          </div>
-        )}
-
-        {query.data && query.data.length > 0 && (
-          <ul className="space-y-4">
-            {query.data.map((interview) => (
-              <li
-                key={interview.id}
-                className="border-t border-neutral-200 pt-4 first:border-0 first:pt-0"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="mt-0.5 shrink-0 rounded-md bg-primary-50 p-1.5 text-primary-700">
-                    <CalendarIcon className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-neutral-900">
-                      {formatStage(interview.status)}
-                    </p>
-                    <p className="mt-0.5 text-sm text-neutral-700">
-                      {interview.scheduledAt
-                        ? `${formatDateTime(interview.scheduledAt)}${
-                            interview.timezone ? ` (${interview.timezone})` : ''
-                          }`
-                        : // PENDING_SELECTION: the candidate has not chosen yet
-                          // (FR6.2), so there is no time to show.
-                          `Awaiting the candidate's choice — ${interview.slots.length} slot(s) offered`}
-                    </p>
-                    {interview.interviewers.length > 0 && (
-                      <p className="mt-1 break-words text-xs text-neutral-500">
-                        {interview.interviewers.map((person) => person.email).join(', ')}
-                      </p>
-                    )}
-                    {/* FR6.3 — null means it was arranged without a calendar
-                        provider, which is a complete interview, not a failure. */}
-                    {!interview.calendarEventId && interview.scheduledAt && (
-                      <p className="mt-1 text-xs text-neutral-500">
-                        Arranged without a calendar invite.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
         )}
       </div>
     </Card>

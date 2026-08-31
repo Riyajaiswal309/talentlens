@@ -3,7 +3,12 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { CloseIcon, LogoMark, LogoutIcon, MenuIcon } from '../components/icons';
 import { BreadcrumbProvider, Breadcrumbs } from './Breadcrumbs';
-import { ADMIN_NAVIGATION, RECRUITER_NAVIGATION, type NavigationItem } from './navigation';
+import {
+  ADMIN_NAVIGATION,
+  HM_NAVIGATION,
+  RECRUITER_NAVIGATION,
+  type NavigationItem,
+} from './navigation';
 
 /**
  * The recruiter workspace shell (Phase 1 §4.1).
@@ -121,7 +126,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           Workspace
         </p>
         <ul className="space-y-1">
-          {RECRUITER_NAVIGATION.map((item) => (
+          {(user?.role === 'HIRING_MANAGER' ? HM_NAVIGATION : RECRUITER_NAVIGATION).map((item) => (
             <li key={item.code}>
               <NavigationEntry item={item} />
             </li>
