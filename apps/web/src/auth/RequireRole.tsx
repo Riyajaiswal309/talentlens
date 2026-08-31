@@ -1,5 +1,7 @@
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { USER_ROLES, type UserRole } from '@talentlens/shared-types';
+import { LogoMark } from '../components/icons';
+import { buttonClass } from '../components/ui';
 import { useAuth } from './AuthContext';
 
 /**
@@ -40,22 +42,34 @@ function ForbiddenScreen({ role }: { role?: string }) {
   const { signOut } = useAuth();
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-100 p-6">
-      <div className="w-full max-w-md rounded-md border border-neutral-300 bg-neutral-0 p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-neutral-900">
+    <main className="flex min-h-screen items-center justify-center bg-neutral-50 p-6">
+      <div className="w-full max-w-md rounded-xl border border-neutral-200 bg-neutral-0 p-6 shadow-lg">
+        <Link to="/" className="inline-flex items-center gap-2.5 rounded-sm">
+          <LogoMark className="h-8 w-8" />
+          <span className="text-base font-semibold text-neutral-900">TalentLens</span>
+        </Link>
+
+        <h1 className="mt-6 text-xl font-semibold text-neutral-900">
           This area is not available to you
         </h1>
-        <p className="mt-2 text-sm text-neutral-700">
+        <p className="mt-2 text-sm leading-relaxed text-neutral-500">
           The recruiter workspace is open to Recruiters and Administrators.
           {role ? ` You are signed in as ${role.replace('_', ' ').toLowerCase()}.` : ''}
         </p>
-        <button
-          type="button"
-          onClick={() => void signOut()}
-          className="mt-6 h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
-        >
-          Sign out
-        </button>
+
+        {/*
+          TWO WAYS OUT, not one. Signing out is the right move for someone on
+          the wrong account, but a Hiring Manager on their OWN account should
+          not have to destroy a valid session to leave a page they mis-clicked.
+        */}
+        <div className="mt-6 flex flex-wrap gap-2">
+          <Link to="/" className={buttonClass('secondary')}>
+            Back to home
+          </Link>
+          <button type="button" onClick={() => void signOut()} className={buttonClass('ghost')}>
+            Sign out
+          </button>
+        </div>
       </div>
     </main>
   );

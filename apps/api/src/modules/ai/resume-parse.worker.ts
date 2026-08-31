@@ -12,6 +12,8 @@ import {
 import { StorageService } from '../../common/storage/storage.service';
 import { AI_AUDIT_ACTIONS } from './ai-audit-actions';
 import { AiServiceClient, type ParseResult } from './ai-service.client';
+import { ResumeParserPort, type ResumeParseResult } from './parsing/resume-parser.port';
+import { MatchScorerPort } from './scoring/match-scorer.port';
 import { assertAllowedFeatures } from './feature-allow-list';
 import { DEFAULT_RANKING_WEIGHTS, type RankingWeights } from './dto/ranking-weights.dto';
 
@@ -46,6 +48,10 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly ai: AiServiceClient,
+    /** FR3 — the local extractor. Bound in `ai.module.ts`; swappable there. */
+    private readonly parser: ResumeParserPort,
+    /** FR4.1 — the local scorer. Bound alongside the parser. */
+    private readonly scorer: MatchScorerPort,
     private readonly audit: AuditService,
   ) {}
 
@@ -105,10 +111,22 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
     });
 
     try {
-      // §20 stage 2 — text extraction happens in the AI service, which owns
-      // pdfplumber/python-docx. The core API never imports model code.
-      const text = await this.storage.readText(resume.s3Key);
-      const parsed = await this.ai.parse(resume.id, text);
+      /*
+       * §20 stage 2 — text extraction.
+       *
+       * DEVIATION FROM §20, RECORDED DELIBERATELY: the PRD puts extraction in
+       * the Python AI service so "the core API never imports model code". That
+       * service ships no parser (its requirements.txt omits pdfplumber and
+       * python-docx on purpose), so extraction runs here instead, behind
+       * `ResumeParserPort`. Nothing imported is model code — it is two document
+       * readers and a set of regexes — and the port is the seam that lets the
+       * Python implementation take over later without touching this worker.
+       *
+       * BYTES, NOT TEXT. `readText` decodes as UTF-8, which destroys a PDF and
+       * a DOCX alike; that was why nothing was ever really parsed here.
+       */
+      const bytes = await this.storage.readBytes(resume.s3Key);
+      const parsed = await this.parser.parse(bytes, resume.mimeType);
 
       await this.persistProfile(resume.id, parsed);
 
@@ -119,7 +137,22 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
 
       this.logger.log(`${RESUME_PARSED} resume=${resume.id} [${event.correlationId}]`);
 
-      await this.score(resume.application.id, resume.application.job, parsed, event.correlationId);
+      /*
+       * Scoring keeps the AI service's own `ParseResult` shape. Adapted here
+       * rather than widening that contract, which the Python client shares.
+       * `overallConfidence` is non-null there, so an unscored document (no
+       * fields produced) presents as 0 — an honest floor, not a guess.
+       *
+       * NOT IMPLEMENTED IN THIS PHASE: every seeded job has
+       * `aiScoringEnabled: false`, so `score()` returns immediately and no
+       * match_scores row is written. The call is left in place untouched.
+       */
+      await this.score(
+        resume.application.id,
+        resume.application.job,
+        { ...parsed, overallConfidence: parsed.overallConfidence ?? 0 } as unknown as ParseResult,
+        event.correlationId,
+      );
     } catch (error) {
       /*
        * FR2.5 / §20 design note: "if parsing subsequently fails, the
@@ -139,14 +172,21 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   /** §20 stage 7 — persist `parsed_profiles`, one per resume. */
-  private async persistProfile(resumeId: string, parsed: ParseResult): Promise<void> {
+  private async persistProfile(resumeId: string, parsed: ResumeParseResult): Promise<void> {
     const data = {
-      skills: parsed.skills as Prisma.InputJsonValue,
+      // FR3.1 — contact block; absent fields are null inside it, never omitted
+      // in a way that would read as "not attempted".
+      contact: parsed.contact as unknown as Prisma.InputJsonValue,
+      skills: parsed.skills as unknown as Prisma.InputJsonValue,
       workHistory: parsed.workHistory as Prisma.InputJsonValue,
       education: parsed.education as Prisma.InputJsonValue,
       certifications: parsed.certifications as Prisma.InputJsonValue,
       fieldConfidence: parsed.fieldConfidence as Prisma.InputJsonValue,
       confidenceScore: parsed.overallConfidence,
+      // FR3.2 — provenance, so a rule-based extraction is never mistaken for a
+      // model's output when this row is read back.
+      parserName: parsed.parserName,
+      parserVersion: parsed.parserVersion,
     };
 
     await this.prisma.parsedProfile.upsert({
@@ -167,7 +207,15 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
    */
   private async score(
     applicationId: string,
-    job: { id: string; companyId: string; aiScoringEnabled: boolean; rankingWeights: unknown },
+    job: {
+      id: string;
+      companyId: string;
+      aiScoringEnabled: boolean;
+      rankingWeights: unknown;
+      // FR4.1 — the scorer compares against the job's own requirement.
+      requiredSkills: unknown;
+      experienceLevel: string | null;
+    },
     parsed: ParseResult,
     correlationId: string,
   ): Promise<void> {
@@ -177,8 +225,33 @@ export class ResumeParseWorker implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    /*
+     * FR4.2 — the job's own weighting, falling back to the documented default
+     * when none has been saved. There is deliberately no second weighting
+     * system: this is the same `ranking_weights` column RC-08 edits.
+     */
     const weights = (job.rankingWeights as RankingWeights | null) ?? DEFAULT_RANKING_WEIGHTS;
-    const result = await this.ai.score({ applicationId, profile: parsed, weights });
+
+    /*
+     * FR4.1 — scored locally by `baseline-rules-v1` through `MatchScorerPort`,
+     * not by the Python service. Same reasoning as the parser (amendment I):
+     * that service ships no model, and routing through it would mean a network
+     * hop to a stub. The port keeps the swap to one line in `ai.module.ts`.
+     */
+    const result = this.scorer.score({
+      job: {
+        id: job.id,
+        requiredSkills: job.requiredSkills,
+        experienceLevel: job.experienceLevel,
+      },
+      profile: {
+        skills: parsed.skills,
+        workHistory: parsed.workHistory,
+        education: parsed.education,
+        certifications: parsed.certifications,
+      },
+      weights,
+    });
 
     // BR-02, before anything is written.
     if (!result.rationale?.summary || !Array.isArray(result.rationale.factors)) {

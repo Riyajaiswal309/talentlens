@@ -1,12 +1,19 @@
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, Skeleton, SkeletonText } from '../../components/Skeleton';
+import { CalendarIcon, DocumentIcon } from '../../components/icons';
+import { Avatar, Badge, Card, CardHeader, Chip, Notice, buttonClass } from '../../components/ui';
 import { useBreadcrumbLabel } from '../../layouts/Breadcrumbs';
 import { useJob } from '../jobs/useJobs';
+import { ScheduleInterviewForm } from '../interviews/ScheduleInterviewForm';
 import { CommentThread } from './CommentThread';
 import { ScorecardList } from './ScorecardList';
+import { TagPanel } from './TagPanel';
+import { ScoreOverrideForm } from './ScoreOverrideForm';
 import { formatStage, type WireScore } from './useJobCandidates';
 import {
+  PARSE_REVIEW_THRESHOLD,
   useApplication,
   useApplicationInterviews,
   useComments,
@@ -37,8 +44,10 @@ import {
  *   here would either guess at stage names or invite a typo that silently moves
  *   a candidate into a stage that does not exist.
  *
- * Score override (RC-07) and interview scheduling (RC-11) are separate screens
- * and out of scope; interviews are read here, never created.
+ * Score override (RC-07) is a separate screen. Interview scheduling (RC-11) is
+ * NOT: an interview is always for one application, and no endpoint lists
+ * interviews across a tenant, so it is arranged here in place rather than on a
+ * route that would have nothing of its own to show.
  */
 export function CandidateDetailPage() {
   const { jobId, applicationId } = useParams<{ jobId: string; applicationId: string }>();
@@ -72,7 +81,10 @@ export function CandidateDetailPage() {
   // A 404 here covers "no such application" and "another tenant's" alike
   // (BR-06) — `ErrorState` already words that without picking one.
   if (application.isError) {
-    return <ErrorState error={application.error} onRetry={() => void application.refetch()} />;
+    // The whole page — nothing else renders, so this carries the h1.
+    return (
+      <ErrorState error={application.error} onRetry={() => void application.refetch()} as="h1" />
+    );
   }
 
   const detail = application.data;
@@ -96,50 +108,59 @@ export function CandidateDetailPage() {
   return (
     <div>
       <header className="mb-6">
-        <p className="font-mono text-xs text-neutral-500">RC-06</p>
-        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-neutral-900">{detail.candidate.fullName}</h1>
-            <p className="mt-1 text-sm text-neutral-700">
-              {detail.candidate.email}
-              {detail.candidate.phone ? ` · ${detail.candidate.phone}` : ''}
-            </p>
+        <p className="font-mono text-2xs uppercase tracking-widest text-neutral-400">RC-06</p>
+        <div className="mt-2 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Avatar name={detail.candidate.fullName} size="lg" />
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold text-neutral-900">
+                {detail.candidate.fullName}
+              </h1>
+              <p className="mt-1 text-sm text-neutral-500">
+                {detail.candidate.email}
+                {detail.candidate.phone ? ` · ${detail.candidate.phone}` : ''}
+              </p>
+              <p className="mt-1.5 text-sm text-neutral-500">
+                Applied to{' '}
+                <Link
+                  to={`/jobs/${detail.job.id}`}
+                  className="font-medium text-primary-700 hover:underline"
+                >
+                  {detail.job.title}
+                </Link>
+              </p>
+            </div>
           </div>
-          <div className="text-right">
+
+          <div className="flex flex-col items-end gap-1.5">
             {/* Stage as stored: decision B2 makes stage names per-job and
                 editable, so they are shown, never mapped to a fixed set. */}
-            <span className="inline-flex rounded-full border border-neutral-300 px-2 py-0.5 text-xs font-semibold text-neutral-700">
-              {formatStage(detail.currentStage)}
-            </span>
-            <p className="mt-2 text-xs text-neutral-500">Applied {formatDate(detail.appliedAt)}</p>
-            <p className="font-mono text-xs text-neutral-500">{detail.reference}</p>
+            <Badge tone="primary">{formatStage(detail.currentStage)}</Badge>
+            <p className="text-xs text-neutral-500">Applied {formatDate(detail.appliedAt)}</p>
+            <p className="font-mono text-xs text-neutral-400">{detail.reference}</p>
           </div>
         </div>
-
-        <p className="mt-3 text-sm text-neutral-700">
-          Applied to{' '}
-          <Link to={`/jobs/${detail.job.id}`} className="text-primary-700 hover:underline">
-            {detail.job.title}
-          </Link>
-        </p>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-5 lg:grid-cols-3">
         {/* §7.3 puts the assessment left and the collaboration right; with no
             parsed profile to show, the left column carries what does exist. */}
-        <div className="space-y-4 lg:col-span-2">
+        <div className="space-y-5 lg:col-span-2">
           <ScorePanel
             score={detail.score}
             aiScoringEnabled={aiScoringEnabled}
             jobLoading={job.isPending}
+            applicationId={applicationId}
           />
           <ApplicationFacts detail={detail} />
+          <StageHistoryPanel detail={detail} />
           <CommentThread applicationId={applicationId} query={comments} />
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
+          <TagPanel applicationId={applicationId} />
           <ScorecardList applicationId={applicationId} query={scorecards} />
-          <InterviewPanel query={interviews} />
+          <InterviewPanel applicationId={applicationId!} query={interviews} />
         </div>
       </div>
     </div>
@@ -156,11 +177,13 @@ function ScorePanel({
   score,
   aiScoringEnabled,
   jobLoading,
+  applicationId,
 }: {
   score: WireScore | null;
   /** `undefined` until the job's flag is known. */
   aiScoringEnabled: boolean | undefined;
   jobLoading: boolean;
+  applicationId: string | undefined;
 }) {
   /*
    * WAIT RATHER THAN GUESS. Until the job answers, neither "disabled" nor "no
@@ -170,18 +193,15 @@ function ScorePanel({
    */
   if (jobLoading) {
     return (
-      <section
-        className="rounded-md border border-neutral-300 bg-neutral-0 p-4"
-        role="status"
-        aria-live="polite"
-        aria-busy="true"
-      >
-        <span className="sr-only">Loading score status…</span>
-        <Skeleton className="h-[20px] w-40" />
-        <div className="mt-3">
-          <SkeletonText lines={2} />
+      <Card className="p-5">
+        <div role="status" aria-live="polite" aria-busy="true">
+          <span className="sr-only">Loading score status…</span>
+          <Skeleton className="h-[20px] w-40" />
+          <div className="mt-3">
+            <SkeletonText lines={2} />
+          </div>
         </div>
-      </section>
+      </Card>
     );
   }
 
@@ -190,14 +210,10 @@ function ScorePanel({
     return (
       // §8.2 assigns info/700 to AI-disabled notices. Not a warning: nothing is
       // wrong, the feature is switched off for this job.
-      <section className="rounded-md border border-info-700 bg-neutral-0 p-4">
-        <h2 className="text-base font-semibold text-info-700">AI scoring is disabled</h2>
-        <p className="mt-2 text-sm text-neutral-700">
-          AI scoring is disabled for this job by your administrator, so this application has no
-          score and no rationale. Assess the candidate from their resume and the team&rsquo;s
-          scorecards.
-        </p>
-      </section>
+      <Notice tone="info" title="AI scoring is disabled">
+        AI scoring is disabled for this job by your administrator, so this application has no score
+        and no rationale. Assess the candidate from their resume and the team&rsquo;s scorecards.
+      </Notice>
     );
   }
 
@@ -205,62 +221,64 @@ function ScorePanel({
     // The job expects a score and none came back — SY-02's reading rather than
     // FR4.5's. Stated, not left as an empty panel.
     return (
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-        <h2 className="text-base font-semibold text-neutral-900">Score</h2>
-        <p className="mt-2 text-sm text-neutral-700">
+      <Card>
+        <CardHeader title="Score" />
+        <p className="p-5 text-sm text-neutral-500">
           No score is available for this application yet.
         </p>
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-base font-semibold text-neutral-900">Score and rationale</h2>
-        {score.overridden && (
-          <span className="inline-flex rounded-sm border border-warning-700 px-2 py-0.5 text-xs font-semibold text-warning-700">
-            Overridden
-          </span>
+    <Card>
+      <CardHeader
+        title="Score and rationale"
+        action={score.overridden ? <Badge tone="warning">Overridden</Badge> : undefined}
+      />
+      <div className="p-5">
+        {/*
+          §8.2's semantic rule: magnitude uses the neutral/primary ramp, never
+          success/danger — red on a low score would read as a rejection
+          recommendation the system is forbidden to make (BR-01).
+        */}
+        <p className="font-mono text-3xl font-semibold text-neutral-900">
+          {score.composite.toFixed(2)}
+        </p>
+        <p className="mt-2 max-w-[70ch] text-sm leading-relaxed text-neutral-700">
+          {score.rationale.summary}
+        </p>
+
+        {score.rationale.factors.length > 0 && (
+          <ul className="mt-4 space-y-2 border-t border-neutral-200 pt-4">
+            {score.rationale.factors.map((factor) => (
+              <li key={factor.feature} className="flex justify-between gap-4 text-sm">
+                <span className="text-neutral-700">{factor.feature}</span>
+                <span className="font-mono text-neutral-900">
+                  {/* The direction is the provider's own word; not recomputed
+                      from the sign, which would be a second source of truth. */}
+                  {factor.direction} {factor.contribution.toFixed(2)}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
+
+        <p className="mt-4 font-mono text-xs text-neutral-400">Model {score.modelVersion}</p>
+
+        {/* FR4.3 — offered only here, where a score actually exists to change. */}
+        <ScoreOverrideForm applicationId={applicationId} score={score} />
       </div>
-
-      {/*
-        §8.2's semantic rule: magnitude uses the neutral/primary ramp, never
-        success/danger — red on a low score would read as a rejection
-        recommendation the system is forbidden to make (BR-01).
-      */}
-      <p className="mt-2 font-mono text-2xl font-semibold text-neutral-900">
-        {score.composite.toFixed(2)}
-      </p>
-      <p className="mt-1 max-w-[70ch] text-sm text-neutral-700">{score.rationale.summary}</p>
-
-      {score.rationale.factors.length > 0 && (
-        <ul className="mt-3 space-y-1">
-          {score.rationale.factors.map((factor) => (
-            <li key={factor.feature} className="flex justify-between gap-4 text-sm">
-              <span className="text-neutral-700">{factor.feature}</span>
-              <span className="font-mono text-neutral-900">
-                {/* The direction is the provider's own word; not recomputed
-                    from the sign, which would be a second source of truth. */}
-                {factor.direction} {factor.contribution.toFixed(2)}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <p className="mt-3 font-mono text-xs text-neutral-500">Model {score.modelVersion}</p>
-    </section>
+    </Card>
   );
 }
 
 /** What the API does hold about the application itself. */
 function ApplicationFacts({ detail }: { detail: ApplicationDetailResponse }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <h2 className="text-base font-semibold text-neutral-900">Application</h2>
-      <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+    <Card>
+      <CardHeader title="Application" />
+      <dl className="grid gap-4 p-5 sm:grid-cols-2">
         <Field label="Reference" value={detail.reference} mono />
         <Field label="Current stage" value={formatStage(detail.currentStage)} />
         <Field label="Applied" value={formatDate(detail.appliedAt)} />
@@ -269,40 +287,52 @@ function ApplicationFacts({ detail }: { detail: ApplicationDetailResponse }) {
         <Field label="Source" value={detail.source} />
       </dl>
 
-      <h3 className="mt-4 text-sm font-semibold text-neutral-900">Resume</h3>
-      {detail.resume ? (
-        <>
-          <dl className="mt-2 grid gap-4 sm:grid-cols-2">
-            <Field label="Uploaded" value={formatDate(detail.resume.uploadedAt)} />
-            <Field label="File type" value={detail.resume.mimeType} mono />
-            <Field label="Parse status" value={detail.resume.parseStatus} />
-          </dl>
-          <p className="mt-2 text-xs text-neutral-500">
-            {/*
-              Both facts stated because both surprise a reader: the file cannot
-              be opened, and PENDING is not a stuck job.
-            */}
-            The file itself is not downloadable — the API withholds its storage location
-            deliberately. Parsing is always pending in this phase: no parser runs yet (FR2.5), so
-            there is no extracted profile to show.
+      <div className="border-t border-neutral-200 p-5">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
+          <DocumentIcon className="h-4 w-4 text-neutral-400" />
+          Resume
+        </h3>
+        {detail.resume ? (
+          <>
+            <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+              <Field label="Uploaded" value={formatDate(detail.resume.uploadedAt)} />
+              <Field label="File type" value={detail.resume.mimeType} mono />
+              <Field label="Parse status" value={detail.resume.parseStatus} />
+            </dl>
+            <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+              The file itself is not downloadable — the API withholds its storage location
+              deliberately.
+            </p>
+            <ParsedProfilePanel resume={detail.resume} />
+          </>
+        ) : (
+          <p className="mt-2 text-sm text-neutral-400">
+            No resume was attached to this application.
           </p>
-        </>
-      ) : (
-        <p className="mt-2 text-sm text-neutral-500">No resume was attached to this application.</p>
-      )}
-    </section>
+        )}
+      </div>
+    </Card>
   );
 }
 
 /**
- * Interviews already arranged for this application (read-only).
+ * Interviews for this application, and the control that arranges one (RC-11).
  *
- * Scheduling one is RC-11 and is not built; `POST /v1/interviews` is not called
- * from here.
+ * SCHEDULING LIVES HERE RATHER THAN ON ITS OWN ROUTE. An interview is always
+ * *for* an application, and no endpoint lists interviews across a tenant — a
+ * top-level screen would have nothing to show. The form is opened in place so
+ * the recruiter keeps the candidate's record in view while choosing times.
+ *
+ * ROLE IS ALREADY SETTLED BY THE ROUTER. This page sits behind `RequireRole`
+ * with its default `RECRUITER_APP_ROLES` (Recruiter and Admin) — exactly the
+ * roles `POST /v1/interviews` and `GET /v1/interviewers` allow — so no
+ * additional role check is needed or attempted here.
  */
 function InterviewPanel({
+  applicationId,
   query,
 }: {
+  applicationId: string;
   query: {
     isPending: boolean;
     isError: boolean;
@@ -311,65 +341,116 @@ function InterviewPanel({
     refetch: () => void;
   };
 }) {
+  const [scheduling, setScheduling] = useState(false);
+
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <h2 className="text-base font-semibold text-neutral-900">Interviews</h2>
+    <Card>
+      <CardHeader
+        title="Interviews"
+        action={
+          // Only when the list has something in it — an empty panel carries its
+          // own call to action below, and two identical buttons is one too many.
+          !scheduling && !query.isPending && !query.isError && (query.data?.length ?? 0) > 0 ? (
+            <button
+              type="button"
+              onClick={() => setScheduling(true)}
+              className={buttonClass('secondary', 'sm')}
+            >
+              Schedule interview
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="p-5">
+        {scheduling && (
+          <div className="mb-5 border-b border-neutral-200 pb-5">
+            <ScheduleInterviewForm
+              applicationId={applicationId}
+              onDone={() => setScheduling(false)}
+            />
+          </div>
+        )}
 
-      {query.isPending && (
-        <div className="mt-3" role="status" aria-live="polite" aria-busy="true">
-          <span className="sr-only">Loading interviews…</span>
-          <SkeletonText lines={2} />
-        </div>
-      )}
+        {query.isPending && (
+          <div role="status" aria-live="polite" aria-busy="true">
+            <span className="sr-only">Loading interviews…</span>
+            <SkeletonText lines={2} />
+          </div>
+        )}
 
-      {query.isError && (
-        <div className="mt-3">
+        {query.isError && (
           <ErrorState
             error={query.error}
             title="Interviews could not be loaded"
             onRetry={() => query.refetch()}
           />
-        </div>
-      )}
+        )}
 
-      {!query.isPending && !query.isError && (query.data?.length ?? 0) === 0 && (
-        <p className="mt-2 text-sm text-neutral-500">No interviews arranged yet.</p>
-      )}
+        {!query.isPending && !query.isError && (query.data?.length ?? 0) === 0 && (
+          <div className="flex flex-col items-center py-4 text-center">
+            <span className="rounded-full bg-neutral-100 p-3 text-neutral-400">
+              <CalendarIcon />
+            </span>
+            <p className="mt-3 text-sm font-medium text-neutral-700">No interviews arranged yet</p>
+            <p className="mt-1 max-w-[34ch] text-xs leading-relaxed text-neutral-500">
+              Offer the candidate a choice of times, or record a time you have already agreed.
+            </p>
+            {!scheduling && (
+              <button
+                type="button"
+                onClick={() => setScheduling(true)}
+                className={`${buttonClass('primary', 'sm')} mt-3`}
+              >
+                Schedule interview
+              </button>
+            )}
+          </div>
+        )}
 
-      {query.data && query.data.length > 0 && (
-        <ul className="mt-3 space-y-3">
-          {query.data.map((interview) => (
-            <li
-              key={interview.id}
-              className="border-t border-neutral-300 pt-3 first:border-0 first:pt-0"
-            >
-              <p className="text-sm font-semibold text-neutral-900">
-                {formatStage(interview.status)}
-              </p>
-              <p className="mt-0.5 text-sm text-neutral-700">
-                {interview.scheduledAt
-                  ? `${formatDateTime(interview.scheduledAt)}${
-                      interview.timezone ? ` (${interview.timezone})` : ''
-                    }`
-                  : // PENDING_SELECTION: the candidate has not chosen yet
-                    // (FR6.2), so there is no time to show.
-                    `Awaiting the candidate's choice — ${interview.slots.length} slot(s) offered`}
-              </p>
-              {interview.interviewers.length > 0 && (
-                <p className="mt-1 text-xs text-neutral-500">
-                  {interview.interviewers.map((person) => person.email).join(', ')}
-                </p>
-              )}
-              {/* FR6.3 — null means it was arranged without a calendar
-                  provider, which is a complete interview, not a failure. */}
-              {!interview.calendarEventId && interview.scheduledAt && (
-                <p className="mt-1 text-xs text-neutral-500">Arranged without a calendar invite.</p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+        {query.data && query.data.length > 0 && (
+          <ul className="space-y-4">
+            {query.data.map((interview) => (
+              <li
+                key={interview.id}
+                className="border-t border-neutral-200 pt-4 first:border-0 first:pt-0"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 shrink-0 rounded-md bg-primary-50 p-1.5 text-primary-700">
+                    <CalendarIcon className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-neutral-900">
+                      {formatStage(interview.status)}
+                    </p>
+                    <p className="mt-0.5 text-sm text-neutral-700">
+                      {interview.scheduledAt
+                        ? `${formatDateTime(interview.scheduledAt)}${
+                            interview.timezone ? ` (${interview.timezone})` : ''
+                          }`
+                        : // PENDING_SELECTION: the candidate has not chosen yet
+                          // (FR6.2), so there is no time to show.
+                          `Awaiting the candidate's choice — ${interview.slots.length} slot(s) offered`}
+                    </p>
+                    {interview.interviewers.length > 0 && (
+                      <p className="mt-1 break-words text-xs text-neutral-500">
+                        {interview.interviewers.map((person) => person.email).join(', ')}
+                      </p>
+                    )}
+                    {/* FR6.3 — null means it was arranged without a calendar
+                        provider, which is a complete interview, not a failure. */}
+                    {!interview.calendarEventId && interview.scheduledAt && (
+                      <p className="mt-1 text-xs text-neutral-500">
+                        Arranged without a calendar invite.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -412,4 +493,259 @@ function formatDateTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/**
+ * FR3.1 / FR3.2 — what the parser read, and what a human still has to check.
+ *
+ * FOUR DISTINCT STATES, worded differently on purpose:
+ *   PENDING     — queued, nothing attempted yet
+ *   PROCESSING  — in flight
+ *   FAILED      — attempted and could not be read; the application is STILL
+ *                 valid (FR2.5), which the copy says explicitly
+ *   COMPLETED   — parsed; fields shown, low-confidence ones flagged
+ *
+ * A COMPLETED parse with every field null is NOT the same as no parse, and the
+ * panel distinguishes them: the first means "read, nothing found", the second
+ * means "not attempted".
+ *
+ * THE NUMBERS ARE NOT MODEL CONFIDENCE. They are the strength of the
+ * deterministic rule that produced each field, and the panel labels them that
+ * way so nobody reads them as a classifier's probability.
+ */
+function ParsedProfilePanel({
+  resume,
+}: {
+  resume: NonNullable<ApplicationDetailResponse['resume']>;
+}) {
+  const status = resume.parseStatus;
+  const profile = resume.parsedProfile;
+
+  if (status === 'PENDING' || status === 'PROCESSING') {
+    return (
+      <div className="mt-4">
+        <Notice
+          tone="neutral"
+          title={status === 'PENDING' ? 'Parsing queued' : 'Parsing in progress'}
+        >
+          The resume has not been read yet. The application is already complete and valid — parsing
+          never blocks intake (FR2.5).
+        </Notice>
+      </div>
+    );
+  }
+
+  if (status === 'FAILED') {
+    return (
+      <div className="mt-4">
+        <Notice tone="warning" title="This resume could not be read">
+          Extraction failed for this file, so no fields were taken from it.{' '}
+          <strong>The application is still valid</strong> and can be progressed normally — enter any
+          details manually. Scanned or image-only PDFs are the usual cause; OCR is not available in
+          this build.
+        </Notice>
+      </div>
+    );
+  }
+
+  if (!profile) return null;
+
+  const contact = profile.contact ?? {};
+  const confidence = profile.fieldConfidence ?? {};
+  const skills = profile.skills ?? [];
+  const rows: Array<[string, string, string | null | undefined]> = [
+    ['Name', 'contact.name', contact.name],
+    ['Email', 'contact.email', contact.email],
+    ['Phone', 'contact.phone', contact.phone],
+    ['Location', 'contact.location', contact.location],
+  ];
+  const needsReview = Object.entries(confidence).filter(
+    ([, value]) => value < PARSE_REVIEW_THRESHOLD,
+  );
+
+  return (
+    <div className="mt-4 border-t border-neutral-200 pt-4">
+      <h3 className="text-sm font-semibold text-neutral-900">Extracted from the resume</h3>
+      <p className="mt-1 text-xs leading-relaxed text-neutral-500">
+        Read by <span className="font-mono">{profile.parserName ?? 'unknown'}</span>
+        {profile.parserVersion ? ` ${profile.parserVersion}` : ''} — a{' '}
+        <strong>rule-based extractor, not a trained model</strong>. The percentages are how strong
+        the matching rule was, not a model&rsquo;s confidence.
+      </p>
+
+      <dl className="mt-3 space-y-2">
+        {rows.map(([label, key, value]) => {
+          const score = confidence[key];
+          const low = typeof score === 'number' && score < PARSE_REVIEW_THRESHOLD;
+          return (
+            <div key={key} className="flex flex-wrap items-baseline gap-2 text-sm">
+              <dt className="w-24 shrink-0 text-neutral-500">{label}</dt>
+              <dd
+                className={`min-w-0 flex-1 break-words ${value ? 'text-neutral-900' : 'text-neutral-400'}`}
+              >
+                {value || 'Not found'}
+              </dd>
+              {typeof score === 'number' && (
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-2xs font-semibold ${
+                    low
+                      ? 'bg-warning-50 text-warning-700 ring-1 ring-inset ring-warning-200'
+                      : 'bg-neutral-100 text-neutral-500'
+                  }`}
+                >
+                  {Math.round(score * 100)}%{low ? ' · check' : ''}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </dl>
+
+      <div className="mt-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Skills</p>
+        {skills.length > 0 ? (
+          <ul className="mt-2 flex flex-wrap gap-1.5">
+            {skills.map((skill) => (
+              <li key={skill}>
+                <Chip>{skill}</Chip>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-sm text-neutral-400">
+            None recognised. The parser matches a fixed vocabulary, so an unlisted technology is not
+            found rather than missing from the resume.
+          </p>
+        )}
+      </div>
+
+      {needsReview.length > 0 && (
+        <div className="mt-4">
+          <Notice
+            tone="warning"
+            title={
+              needsReview.length === 1
+                ? '1 field needs checking'
+                : `${needsReview.length} fields need checking`
+            }
+          >
+            These scored below the review threshold and should be confirmed against the resume:{' '}
+            {needsReview.map(([key]) => key.replace('contact.', '')).join(', ')}.
+          </Notice>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs leading-relaxed text-neutral-500">
+        Work history, education and certifications are <strong>not extracted</strong> by this parser
+        — those sections must be read from the resume manually. This is a limitation of rule-based
+        extraction, not an indication that the candidate lacks them.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * FR5.4 — "every stage transition is recorded with actor and timestamp".
+ *
+ * READ-ONLY, and reads from the application detail the page already has: the
+ * server embeds `stageHistory` there, so this needs no request of its own and
+ * therefore has no loading or error state separate from the page's own. The
+ * page above already renders `LoadingState` while the application is in flight
+ * and `ErrorState` when it fails, so a second set here would be dead code that
+ * could never display.
+ *
+ * THE OPENING STAGE IS SYNTHESISED FROM `appliedAt`, NOT INVENTED. A row is
+ * written on transition, and creation is not a transition, so the first stage
+ * has no entry. Showing the timeline without it would start the story midway;
+ * the first item is therefore labelled from the application's own arrival time
+ * and marked as the application being received, which is a fact the record
+ * states directly.
+ *
+ * NULL means the caller may not see it (a Candidate), which is different from
+ * an empty array — a candidate is told nothing rather than "no history".
+ */
+function StageHistoryPanel({ detail }: { detail: ApplicationDetailResponse }) {
+  // Withheld for this role — render nothing rather than an empty panel.
+  if (detail.stageHistory === null) return null;
+
+  const history = detail.stageHistory;
+
+  return (
+    <Card>
+      <CardHeader
+        title="Stage history"
+        description="Every recorded move through the pipeline, oldest first."
+      />
+      <div className="p-5">
+        <ol className="relative space-y-5 border-l border-neutral-200 pl-6">
+          {/* The arrival, from `appliedAt` — see the note above. */}
+          <TimelineItem
+            when={detail.appliedAt}
+            title="Application received"
+            detail={`Entered the pipeline${history.length === 0 ? ` at ${formatStage(detail.currentStage)}` : ''}.`}
+            actor={null}
+          />
+
+          {history.map((entry, index) => (
+            <TimelineItem
+              // `changedAt` alone is not unique enough for a bulk move, which
+              // can write several rows in the same transaction.
+              key={`${entry.changedAt}-${entry.toStage}-${index}`}
+              when={entry.changedAt}
+              title={
+                entry.fromStage
+                  ? `${formatStage(entry.fromStage)} → ${formatStage(entry.toStage)}`
+                  : `Moved to ${formatStage(entry.toStage)}`
+              }
+              detail={null}
+              actor={entry.actorEmail}
+            />
+          ))}
+        </ol>
+
+        {history.length === 0 && (
+          <p className="mt-5 text-sm text-neutral-500">
+            No stage changes yet — this application is still at its first stage.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function TimelineItem({
+  when,
+  title,
+  detail,
+  actor,
+}: {
+  when: string;
+  title: string;
+  detail: string | null;
+  actor: string | null;
+}) {
+  return (
+    <li className="relative">
+      {/*
+        Decorative only. The list is already an <ol>, so order is conveyed
+        structurally; the dot adds nothing for a screen reader.
+      */}
+      <span
+        aria-hidden="true"
+        className="absolute -left-[1.9rem] top-1.5 h-2.5 w-2.5 rounded-full bg-primary-600 ring-4 ring-neutral-0"
+      />
+      <p className="text-sm font-semibold text-neutral-900">{title}</p>
+      {detail && <p className="mt-0.5 text-sm text-neutral-500">{detail}</p>}
+      <p className="mt-0.5 text-xs text-neutral-500">
+        {/* A machine-readable timestamp beside the human one. */}
+        <time dateTime={when}>{formatDateTime(when)}</time>
+        {actor && (
+          <>
+            {' · '}
+            <span className="break-words">{actor}</span>
+          </>
+        )}
+      </p>
+    </li>
+  );
 }

@@ -13,11 +13,23 @@ export function ErrorState({
   error,
   onRetry,
   title,
+  as: Heading = 'h2',
 }: {
   error: unknown;
   /** Omit when nothing would change on a second attempt (403, 404). */
   onRetry?: () => void;
   title?: string;
+  /**
+   * Heading level for the panel's title. Defaults to `h2`, which is right when
+   * the panel sits inside a page that already has its own `h1`.
+   *
+   * PASS `h1` WHEN THE PANEL IS THE WHOLE PAGE. On a 404, `JobHeader` renders
+   * nothing — correctly, since there is no job to title — and the error panel
+   * becomes the only content. Left at `h2` the document then has no top-level
+   * heading at all, which breaks the outline a screen-reader user navigates by
+   * (NFR4, WCAG 1.3.1).
+   */
+  as?: 'h1' | 'h2';
 }) {
   const { heading, detail, correlationId, retryable } = describe(error);
 
@@ -29,9 +41,9 @@ export function ErrorState({
      */
     <div
       role="alert"
-      className="rounded-md border border-danger-700 bg-neutral-0 px-6 py-8 text-center"
+      className="rounded-lg border border-danger-200 bg-danger-50 px-6 py-10 text-center"
     >
-      <h2 className="text-base font-semibold text-danger-700">{title ?? heading}</h2>
+      <Heading className="text-base font-semibold text-danger-700">{title ?? heading}</Heading>
       <p className="mx-auto mt-2 max-w-md text-sm text-neutral-700">{detail}</p>
 
       {/*
@@ -49,7 +61,7 @@ export function ErrorState({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-6 h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+          className="mt-6 inline-flex h-10 items-center rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100"
         >
           Try again
         </button>

@@ -2,6 +2,14 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, Skeleton, SkeletonTable } from '../../components/Skeleton';
+import {
+  ArrowRightIcon,
+  BriefcaseIcon,
+  CheckIcon,
+  InboxIcon,
+  UsersIcon,
+} from '../../components/icons';
+import { ButtonLink, Card, CardHeader, PageHeader, StatCard } from '../../components/ui';
 import { FunnelBars } from '../analytics/FunnelBars';
 import { AiScoringBadge, JobStatusBadge } from '../jobs/JobStatusBadge';
 import type { JobResponse } from '../jobs/useJobs';
@@ -16,38 +24,35 @@ import { useDashboard } from './useDashboard';
  *
  * The funnel snapshot reuses RC-12's `FunnelBars` rather than drawing a second
  * chart, so the two screens cannot disagree about what the pipeline looks like.
+ *
+ * NO "UPCOMING INTERVIEWS" PANEL. Interviews are readable only per application
+ * (`GET /v1/applications/:id/interviews`); there is no recruiter-wide or
+ * date-ranged interview endpoint, so such a panel could only be filled by
+ * fanning out a request per application or by inventing rows. Neither is
+ * acceptable, so the panel is absent and the reason is recorded here.
  */
 export function DashboardPage() {
   const dashboard = useDashboard();
 
   return (
     <div>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs text-neutral-500">RC-01</p>
-          <h1 className="text-2xl font-semibold text-neutral-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-neutral-700">
-            Your requisitions and how candidates are moving through them.
-          </p>
-        </div>
-        {/* Table 5.1's primary actions are "Open job" and "Create job". */}
-        <Link
-          to="/jobs/new"
-          className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
-        >
-          Create job
-        </Link>
-      </header>
+      <PageHeader
+        code="RC-01"
+        title="Dashboard"
+        description="Your requisitions and how candidates are moving through them."
+        actions={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
+      />
 
       {dashboard.isPending ? (
         <LoadingState label="Loading your dashboard…">
-          <div className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Skeleton className="h-[92px]" />
-              <Skeleton className="h-[92px]" />
-              <Skeleton className="h-[92px]" />
+          <div className="space-y-5">
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+              <Skeleton className="h-[120px] rounded-lg" />
+              <Skeleton className="h-[120px] rounded-lg" />
+              <Skeleton className="h-[120px] rounded-lg" />
+              <Skeleton className="h-[120px] rounded-lg" />
             </div>
-            <Skeleton className="h-[240px]" />
+            <Skeleton className="h-[280px] rounded-lg" />
             <SkeletonTable rows={3} columns={4} />
           </div>
         </LoadingState>
@@ -59,19 +64,17 @@ export function DashboardPage() {
         <EmptyState
           title="No jobs yet"
           description="Create your first requisition and this dashboard will show how candidates move through it."
-          action={
-            <Link
-              to="/jobs/new"
-              className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
-            >
-              Create job
-            </Link>
-          }
+          action={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
         />
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <StatTiles dashboard={dashboard} />
-          <FunnelSnapshot dashboard={dashboard} />
+          <div className="grid gap-5 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <FunnelSnapshot dashboard={dashboard} />
+            </div>
+            <PipelineBreakdown dashboard={dashboard} />
+          </div>
           <ActiveJobsTable jobs={dashboard.all} hasMore={dashboard.hasMore} />
         </div>
       )}
@@ -84,43 +87,32 @@ function StatTiles({ dashboard }: { dashboard: ReturnType<typeof useDashboard> }
   const hired = dashboard.funnel.data?.timeToHire?.hiredCount ?? 0;
 
   return (
-    <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Tile
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <StatCard
         label="Open requisitions"
         value={String(dashboard.published.length)}
+        icon={<BriefcaseIcon />}
         hint={
           dashboard.drafts.length > 0 || dashboard.closed.length > 0
             ? `${dashboard.drafts.length} draft, ${dashboard.closed.length} closed`
             : undefined
         }
       />
-      <Tile label="Applications" value={String(total)} />
-      <Tile label="Hired" value={String(hired)} />
+      <StatCard label="Applications" value={String(total)} icon={<UsersIcon />} />
+      <StatCard label="Hired" value={String(hired)} icon={<CheckIcon />} />
 
       {/*
         Stated as unavailable rather than shown as zero — see `useDashboard`.
         A "0" here would read as "nothing needs review", which is a claim the
         API has not made.
       */}
-      <div className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-        <dt className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
-          Awaiting review
-        </dt>
-        <dd className="mt-1 text-2xl font-semibold text-neutral-300">—</dd>
-        <p className="mt-0.5 text-xs text-neutral-500">
-          No cross-job count exists yet; parsing runs from Phase 3.
-        </p>
-      </div>
-    </dl>
-  );
-}
-
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold text-neutral-900">{value}</dd>
-      {hint && <p className="mt-0.5 text-xs text-neutral-500">{hint}</p>}
+      <StatCard
+        label="Awaiting review"
+        value="—"
+        muted
+        icon={<InboxIcon />}
+        hint="No cross-job count exists yet; parsing runs from Phase 3."
+      />
     </div>
   );
 }
@@ -132,50 +124,112 @@ function FunnelSnapshot({ dashboard }: { dashboard: ReturnType<typeof useDashboa
 
   if (report.totalApplications === 0) {
     return (
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <Card className="h-full p-5">
         <h2 className="text-base font-semibold text-neutral-900">Funnel</h2>
-        <p className="mt-2 text-sm text-neutral-700">
+        <p className="mt-2 text-sm text-neutral-500">
           No applications yet, so there is nothing to chart. Share a published job&rsquo;s link to
           start receiving candidates.
         </p>
-      </section>
+      </Card>
     );
   }
 
   return (
-    <div>
-      <FunnelBars stages={report.stages} totalApplications={report.totalApplications} />
-      <p className="mt-2 text-sm">
-        <Link to="/analytics" className="text-primary-700 hover:underline">
-          Open full analytics
-        </Link>
-      </p>
-    </div>
+    <Card className="h-full">
+      <CardHeader
+        title="Hiring funnel"
+        description={`Across ${report.totalApplications} application${
+          report.totalApplications === 1 ? '' : 's'
+        }`}
+        action={
+          <Link
+            to="/analytics"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary-700 hover:underline"
+          >
+            Full analytics
+            <ArrowRightIcon />
+          </Link>
+        }
+      />
+      <div className="p-5">
+        <FunnelBars stages={report.stages} totalApplications={report.totalApplications} />
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Where candidates are sitting right now.
+ *
+ * `currentlyHere` is the API's own per-stage occupancy — the same field RC-09's
+ * board columns are counted from, so the two cannot disagree.
+ */
+function PipelineBreakdown({ dashboard }: { dashboard: ReturnType<typeof useDashboard> }) {
+  const report = dashboard.funnel.data;
+  if (!report || report.totalApplications === 0) return null;
+
+  const peak = Math.max(...report.stages.map((stage) => stage.currentlyHere), 1);
+
+  return (
+    <Card className="h-full">
+      <CardHeader title="Pipeline now" description="Candidates currently in each stage" />
+      <ul className="divide-y divide-neutral-200">
+        {report.stages.map((stage) => (
+          <li key={stage.name} className="flex items-center gap-3 px-5 py-3">
+            <span className="w-24 shrink-0 truncate text-sm text-neutral-700">{stage.name}</span>
+            <span className="h-2 flex-1 overflow-hidden rounded-full bg-neutral-100">
+              {/*
+                §8.2 — magnitude uses the neutral/primary ramp, never
+                success/danger: a red bar on a low stage would read as a
+                recommendation the system is forbidden to make (BR-01).
+              */}
+              <span
+                className="block h-full rounded-full bg-primary-500 transition-[width] duration-300"
+                style={{ width: `${(stage.currentlyHere / peak) * 100}%` }}
+              />
+            </span>
+            <span className="w-8 shrink-0 text-right font-mono text-sm font-semibold tabular-nums text-neutral-900">
+              {stage.currentlyHere}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
 function ActiveJobsTable({ jobs, hasMore }: { jobs: JobResponse[]; hasMore: boolean }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-neutral-300 p-4">
-        <h2 className="text-base font-semibold text-neutral-900">Jobs</h2>
-        <Link to="/jobs" className="text-sm text-primary-700 hover:underline">
-          View all jobs
-        </Link>
-      </div>
+    <Card>
+      <CardHeader
+        title="Jobs"
+        description="Requisitions in your company"
+        action={
+          <Link
+            to="/jobs"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary-700 hover:underline"
+          >
+            View all jobs
+            <ArrowRightIcon />
+          </Link>
+        }
+      />
 
-      <ul className="divide-y divide-neutral-300">
+      <ul className="divide-y divide-neutral-200">
         {jobs.map((job) => (
-          <li key={job.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <li
+            key={job.id}
+            className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-neutral-50"
+          >
             <div className="min-w-0">
               {/* Table 5.1's "Open job" action. */}
               <Link
                 to={`/jobs/${job.id}`}
-                className="rounded-sm text-sm font-semibold text-primary-700 hover:underline"
+                className="rounded-sm text-sm font-semibold text-neutral-900 hover:text-primary-700"
               >
                 {job.title}
               </Link>
-              <p className="mt-0.5 text-xs text-neutral-700">
+              <p className="mt-0.5 text-xs text-neutral-500">
                 {[job.department, job.location].filter(Boolean).join(' · ') ||
                   'No details recorded'}
               </p>
@@ -191,10 +245,10 @@ function ActiveJobsTable({ jobs, hasMore }: { jobs: JobResponse[]; hasMore: bool
       {hasMore && (
         // The counts above describe the loaded page; a cursor API reports no
         // total, so saying so beats implying these are all the jobs there are.
-        <p className="border-t border-neutral-300 px-4 py-3 text-xs text-neutral-500">
+        <p className="border-t border-neutral-200 px-5 py-3 text-xs text-neutral-500">
           More jobs exist beyond this page — the counts above cover the ones shown here.
         </p>
       )}
-    </section>
+    </Card>
   );
 }

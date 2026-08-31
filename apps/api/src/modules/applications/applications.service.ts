@@ -7,6 +7,9 @@ import {
   JobStatus,
   ParseStatus,
   type Prisma,
+  type ParsedProfile,
+  type StageHistory,
+  type Users,
   type Resume,
   UserRole,
 } from '@prisma/client';
@@ -25,7 +28,20 @@ const DEFAULT_PAGE_SIZE = 25;
 export type ApplicationDetail = Application & {
   job: Job;
   candidate: Candidate;
-  resume: Resume | null;
+  /**
+   * FR3.2 — the resume carries its parsed profile, so RC-06 can show what was
+   * extracted and what still needs review without a second round trip.
+   * `parsedProfile` is null until a parse has completed.
+   */
+  resume: (Resume & { parsedProfile: ParsedProfile | null }) | null;
+  /**
+   * FR5.4 — "every stage transition is recorded with actor and timestamp".
+   *
+   * The actor is joined so the timeline can name a person rather than a uuid;
+   * only their email is ever mapped into the response. Ordered oldest-first,
+   * which is what a timeline reads as.
+   */
+  stageHistory: (StageHistory & { actor: Pick<Users, 'id' | 'email'> })[];
 };
 
 /** One row of the RC-05 candidate list. */
@@ -264,7 +280,14 @@ export class ApplicationsService {
       include: {
         job: true,
         candidate: true,
-        resume: true,
+        // FR3.2 — the parsed profile travels with the resume so RC-06 can show
+        // what was extracted and what needs review, without a second request.
+        resume: { include: { parsedProfile: true } },
+        // FR5.4 — chronological, with the actor for display.
+        stageHistory: {
+          orderBy: { changedAt: 'asc' },
+          include: { actor: { select: { id: true, email: true } } },
+        },
       },
     });
 

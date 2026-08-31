@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { Avatar } from '../../components/ui';
 import type { JobCandidateResponse } from '../candidates/useJobCandidates';
 import { MoveStageMenu } from './MoveStageMenu';
 import type { PipelineStage } from './usePipeline';
@@ -34,17 +35,17 @@ export function CandidateCard({
 }) {
   return (
     <article
-      className={`rounded-md border bg-neutral-0 p-3 ${
+      className={`rounded-lg border bg-neutral-0 p-3 shadow-sm transition-shadow duration-150 hover:shadow-card-hover ${
         // A selected card is outlined rather than tinted, so the selection reads
         // at a glance without competing with the stage colouring.
-        selected ? 'border-primary-700' : 'border-neutral-300'
+        selected ? 'border-primary-700 ring-1 ring-primary-700' : 'border-neutral-200'
       } ${
         // Flow 7's "subtle in-flight indicator" while the move is in the air.
         pending ? 'opacity-60' : ''
       }`}
       aria-busy={pending}
     >
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-2.5">
         {/*
           A native checkbox, labelled with the candidate's name — five identical
           "select" controls in a column would otherwise be indistinguishable to
@@ -56,19 +57,23 @@ export function CandidateCard({
           onChange={onToggleSelect}
           disabled={pending}
           aria-label={`Select ${row.candidate.fullName} for bulk actions`}
-          className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-neutral-300 accent-primary-700"
+          className="mt-1 h-4 w-4 shrink-0 rounded-sm border-neutral-300 accent-primary-700"
         />
-        <Link
-          to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
-          className="rounded-sm text-sm font-semibold text-primary-700 hover:underline"
-        >
-          {row.candidate.fullName}
-        </Link>
+        <Avatar name={row.candidate.fullName} size="sm" />
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
+            className="block truncate rounded-sm text-sm font-semibold text-neutral-900 hover:text-primary-700"
+          >
+            {row.candidate.fullName}
+          </Link>
+          <p className="truncate text-xs text-neutral-500" title={row.candidate.email}>
+            {row.candidate.email}
+          </p>
+        </div>
       </div>
-      <p className="mt-0.5 truncate text-xs text-neutral-700" title={row.candidate.email}>
-        {row.candidate.email}
-      </p>
-      <p className="mt-1 text-xs text-neutral-500">Applied {formatDate(row.appliedAt)}</p>
+
+      <p className="mt-2 text-xs text-neutral-400">Applied {formatDate(row.appliedAt)}</p>
 
       {showScore === true && (
         <p className="mt-2 text-xs">
@@ -83,7 +88,7 @@ export function CandidateCard({
                 {row.score.composite.toFixed(2)}
               </span>
               {row.score.overridden && (
-                <span className="ml-2 rounded-sm border border-warning-700 px-1.5 py-0.5 text-xs font-semibold text-warning-700">
+                <span className="ml-2 rounded-full bg-warning-50 px-2 py-0.5 text-2xs font-semibold text-warning-700 ring-1 ring-inset ring-warning-200">
                   Overridden
                 </span>
               )}

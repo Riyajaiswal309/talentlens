@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
 import { ErrorState } from '../../components/ErrorState';
 import { SkeletonText } from '../../components/Skeleton';
+import { useToast } from '../../components/Toast';
 import {
   formatRole,
   MAX_COMMENT_LENGTH,
@@ -28,6 +29,7 @@ export function CommentThread({
     refetch: () => void;
   };
 }) {
+  const { notify } = useToast();
   const add = useAddComment(applicationId);
   const [body, setBody] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
@@ -55,11 +57,16 @@ export function CommentThread({
 
     // The box is cleared only after the server accepts it, so a failed post
     // does not lose what was typed.
-    add.mutate(body, { onSuccess: () => setBody('') });
+    add.mutate(body, {
+      onSuccess: () => {
+        setBody('');
+        notify('Comment posted.');
+      },
+    });
   }
 
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+    <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
       <h2 className="text-base font-semibold text-neutral-900">Comments</h2>
 
       {query.isPending && (
@@ -92,7 +99,7 @@ export function CommentThread({
           {query.data.map((comment) => (
             <li
               key={comment.id}
-              className="border-t border-neutral-300 pt-3 first:border-0 first:pt-0"
+              className="border-t border-neutral-200 pt-3 first:border-0 first:pt-0"
             >
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <p className="text-sm font-semibold text-neutral-900">{comment.author.email}</p>
@@ -109,7 +116,7 @@ export function CommentThread({
         </ul>
       )}
 
-      <form onSubmit={handleSubmit} noValidate className="mt-4 border-t border-neutral-300 pt-4">
+      <form onSubmit={handleSubmit} noValidate className="mt-4 border-t border-neutral-200 pt-4">
         <label htmlFor={fieldId} className="mb-1 block text-sm font-semibold text-neutral-900">
           Add a comment
         </label>
@@ -146,7 +153,7 @@ export function CommentThread({
           type="submit"
           disabled={add.isPending || !body.trim() || tooLong}
           aria-disabled={add.isPending || !body.trim() || tooLong}
-          className="mt-3 h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+          className="mt-3 h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-colors hover:bg-primary-800 disabled:opacity-40"
         >
           {add.isPending ? 'Posting…' : 'Post comment'}
         </button>

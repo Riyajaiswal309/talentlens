@@ -41,6 +41,8 @@ PRD §17.2 defines 14 tables. The build has 19: all fourteen of the PRD's own �
 | A13 | **`InterviewStatus` enum** — `PENDING_SELECTION`, `SCHEDULED`, `CANCELLED`. Not enumerated anywhere; derived from Gap 7's `410` row, which fires when the interview is "cancelled or already scheduled" and so names two of the three, the third being the interval Gap 7 exists to serve. | Phase 2b, FR6 |
 | A14 | **`applications.source` + the `ApplicationSource` enum.** FR7.3 requires source-of-hire "tracked and reported" and no document defined a column, capture point, vocabulary or attribution rule, so the requirement was unimplementable as written. Stored on `applications`, not `candidates`, for two reasons already settled elsewhere: D1 gives every submission its own candidate row, so a person applying twice through two channels would be ambiguous at candidate level; and BR-05 erasure retains applications while detaching candidate PII, so attribution on the application survives an erasure and the funnel stays correct afterwards. Nullable with **no backfill** — `NULL` means "not recorded", which is true of every row that predates the column, and a backfill would fabricate attribution. No new table, so `applications`' existing GRANT covers it (A10). | FR7.3, approved 10 Aug 2026 |
 | A15 | **`calendar_connections` table + `CalendarProvider` / `CalendarConnectionStatus` enums.** PRD §17.2 defines no connection entity and FR6.1 cannot work without one; the contract was approved as D34–D45 rather than derived. Owned by the `users` row that authorised it (D34), with **no `company_id` column** — tenancy is reached through the owner, the same indirection `applications` uses through its job, so the two cannot drift apart. `encrypted_refresh_token` is nullable and never plaintext (D36); there is deliberately **no access-token column**, since D36 makes access tokens runtime-only. `UNIQUE (user_id, provider)` makes re-authorising replace rather than accumulate, while allowing one Google and one Microsoft connection at once (D35). Additive, no backfill, own GRANT per A10. | FR6.1 Phase 1, 10 Aug 2026 |
+| A16 | **`parsed_profiles.contact`** (jsonb) — FR3.1 requires contact information to be extracted, but §17 gave `parsed_profiles` no column for name, email, phone or location, so the requirement was unstorable. Modelled as one jsonb block like its `skills` / `work_history` siblings; every key is nullable because an unread field must stay absent. | FR3 build, 25 Aug 2026 |
+| A17 | **`parsed_profiles.parser_name` / `parser_version`** — nullable. FR3.2 and FR4.4 require a profile's provenance to be recorded so an extraction can be re-derived and, more importantly, so a rule-based result is never mistaken for a model's output when the row is read back. | FR3 build, 25 Aug 2026 |
 
 ## B. Endpoints — PRD §23.2
 
@@ -187,6 +189,58 @@ built. They are deferred, not forgotten.
 | **FR6.1 conferencing, cancellation and rescheduling sync** | Not built.                                                   | **FR6.1 itself is implemented as of 10 Aug 2026** — both provider adapters, OAuth, availability and event creation. What remains deferred is everything the decisions deliberately excluded: no conferencing link and no event description or location (D41), no candidate as attendee (D41), and no provider-side event update, cancellation or rescheduling sync, which no document specifies and which intersects the deferred interview-cancellation endpoint. Microsoft additionally has **no per-token revocation endpoint** for delegated grants, so disconnect there is local invalidation only. |
 | **FR7.3 free-text / richer attribution**                   | Not built.                                                   | FR7.3 itself was specified and built on 10 Aug 2026 (A14, B7, C3, D27–D33). What remains deferred is everything beyond the four approved values: no free-text source companion (an unbounded PII surface on a public endpoint), no UTM or referrer capture, no multi-touch attribution, no per-source cost, and no job-board integration — the last is Table 31.1 post-v1 roadmap.                                                                                                                                                                                                                       |
 | **Interview cancellation endpoint**                        | Not built; the state exists.                                 | Gap 7's `410` names "cancelled" as a state the token routes must handle, so `InterviewStatus.CANCELLED` exists and both routes honour it. But no document says who may cancel, whether the candidate is notified, or whether the slots are re-offered — so no endpoint was invented.                                                                                                                                                                                                                                                                                                                     |
+
+## I. Deviation: resume parsing runs in the Node API, not the Python service
+
+**PRD §20 stage 2** places text extraction in `apps/ai-service` on the
+principle that "the core API never imports model code", with `pdfplumber` and
+`python-docx` owned by that service. **The FR3 build does the extraction in
+`apps/api` instead.** This is a deliberate deviation, approved on 25 Aug 2026,
+and it is recorded here rather than left for a reader to discover in a comment.
+
+**Why.**
+
+1. `apps/ai-service/requirements.txt` deliberately does not install
+   `pdfplumber` or `python-docx` — the file says so — because §19.2's corpus
+   and trained artefacts do not exist. The service that was supposed to own
+   extraction ships no extractor.
+2. Running the Python service, a live Redis worker and the API together adds
+   three failure points to a demo that must work first time. The Node worker
+   already existed and already held the queue subscription.
+3. Extraction is verifiable in the Jest suite the project already runs. A
+   Python implementation would need a second test harness.
+
+**What was actually imported.** `pdf-parse` and `mammoth` — two document
+readers. Neither is model code: there is no model, no training, no inference
+and no weights anywhere in the change. The letter of §20 is broken; its intent
+— keep model concerns out of the core API — is not.
+
+**How the boundary was preserved.** Extraction sits behind
+`ResumeParserPort`, an abstract class bound in `ai.module.ts`:
+
+```ts
+{ provide: ResumeParserPort, useClass: RuleBasedResumeParser }
+```
+
+The worker depends only on the port. Moving extraction back into the Python
+service, or onto a trained model, is a change to that one binding plus a new
+implementation — not a rewrite of the worker, the schema or the UI.
+
+**A defect this exposed.** `StorageService.readText()` called
+`transformToString()` on the raw S3 object. PDF and DOCX are binary
+containers, so every resume was being decoded as UTF-8 into mojibake before it
+reached any parser. `readBytes()` was added and the worker moved to it;
+`readText` remains for genuinely textual objects. Nothing had ever really been
+parsed before this, independent of which parser was bound.
+
+**What the parser is, in the PRD's own terms.** `rule-based-local@v1`:
+deterministic regex and closed-vocabulary matching. It is not §19's ranker and
+must never be described as one. The per-field values it writes to
+`field_confidence` are RULE STRENGTH, not calibrated probabilities, and every
+surface that renders them says so. Work history, education and certifications
+are returned empty rather than guessed.
+
+---
 
 ## G. Not amendments — open items carried forward
 

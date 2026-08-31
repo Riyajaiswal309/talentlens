@@ -183,7 +183,7 @@ export function JobForm({
       */}
       {error != null && <ErrorState error={error} title="This job could not be saved" />}
 
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <h2 className="text-base font-semibold text-neutral-900">Role</h2>
         <div className="mt-3 space-y-4">
           <Text
@@ -232,7 +232,7 @@ export function JobForm({
         </div>
       </section>
 
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <h2 className="text-base font-semibold text-neutral-900">Requirements</h2>
         <div className="mt-3">
           <SkillsInput
@@ -243,7 +243,7 @@ export function JobForm({
         </div>
       </section>
 
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <h2 className="text-base font-semibold text-neutral-900">Description</h2>
         <div className="mt-3">
           <label
@@ -275,7 +275,7 @@ export function JobForm({
         Stated, not simulated — see the component header. Rendering nothing at
         all would leave a reader wondering whether stages were forgotten.
       */}
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <h2 className="text-base font-semibold text-neutral-900">
           Pipeline stages <span className="text-xs uppercase text-neutral-500">Later</span>
         </h2>
@@ -293,14 +293,14 @@ export function JobForm({
           type="submit"
           disabled={pending}
           aria-disabled={pending}
-          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-colors hover:bg-primary-800 disabled:opacity-40"
         >
           {pending ? 'Saving…' : submitLabel}
         </button>
         <button
           type="button"
           onClick={handleCancel}
-          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100"
         >
           Cancel
         </button>

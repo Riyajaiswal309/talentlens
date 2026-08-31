@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useBreadcrumbLabel } from '../../layouts/Breadcrumbs';
 import { Skeleton } from '../../components/Skeleton';
+import { Notice } from '../../components/ui';
 import { AiScoringBadge, JobStatusBadge } from './JobStatusBadge';
 import type { JobResponse } from './useJobs';
 
@@ -51,7 +52,7 @@ export function JobHeader({
     return (
       <header className="mb-6">
         <Skeleton className="h-[14px] w-16" />
-        <Skeleton className="mt-2 h-[28px] w-72" />
+        <Skeleton className="mt-2 h-[32px] w-72" />
         <Skeleton className="mt-3 h-[14px] w-96" />
       </header>
     );
@@ -61,16 +62,16 @@ export function JobHeader({
 
   return (
     <header className="mb-6">
-      <p className="font-mono text-xs text-neutral-500">RC-04</p>
+      <p className="font-mono text-2xs uppercase tracking-widest text-neutral-400">RC-04</p>
       <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-neutral-900">{job.title}</h1>
+        <h1 className="text-2xl font-semibold text-neutral-900 sm:text-[1.75rem]">{job.title}</h1>
         <div className="flex gap-2">
           <JobStatusBadge status={job.status} />
           <AiScoringBadge enabled={job.aiScoringEnabled} />
         </div>
       </div>
 
-      <p className="mt-1 text-sm text-neutral-700">
+      <p className="mt-1.5 text-sm text-neutral-500">
         {[job.department, job.location, job.employmentType, job.experienceLevel]
           .filter(Boolean)
           .join(' · ') || 'No further details recorded'}
@@ -82,13 +83,43 @@ export function JobHeader({
         banner states the condition rather than pretending to enforce it.
       */}
       {closed && (
-        <p className="mt-3 rounded-sm border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm text-neutral-700">
-          This job is closed. It is shown read-only.
-        </p>
+        <div className="mt-4">
+          <Notice tone="neutral">This job is closed. It is shown read-only.</Notice>
+        </div>
       )}
 
       <JobTabs jobId={job.id} activeTab={activeTab} />
     </header>
+  );
+}
+
+/** One tab. Extracted so the five entries cannot drift apart in styling. */
+function Tab({
+  to,
+  active,
+  end = false,
+  children,
+}: {
+  to: string;
+  active: boolean;
+  end?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <li>
+      <NavLink
+        to={to}
+        end={end}
+        aria-current={active ? 'page' : undefined}
+        className={`-mb-px inline-block border-b-2 px-1 pb-3 text-sm font-semibold transition-colors duration-150 ${
+          active
+            ? 'border-primary-700 text-primary-700'
+            : 'border-transparent text-neutral-500 hover:border-neutral-300 hover:text-neutral-900'
+        }`}
+      >
+        {children}
+      </NavLink>
+    </li>
   );
 }
 
@@ -100,69 +131,32 @@ export function JobHeader({
  * span rather than a link to a route that does not exist.
  */
 function JobTabs({ jobId, activeTab }: { jobId: string; activeTab: JobTab }) {
-  const base = 'border-b-2 px-1 pb-2 text-sm font-semibold';
-
   return (
-    <nav aria-label="Job sections" className="mt-5 border-b border-neutral-300">
-      <ul className="flex gap-6">
+    <nav aria-label="Job sections" className="mt-6 border-b border-neutral-200">
+      <ul className="flex gap-6 overflow-x-auto">
+        <Tab to={`/jobs/${jobId}`} end active={activeTab === 'overview'}>
+          Overview
+        </Tab>
+        <Tab to={`/jobs/${jobId}/candidates`} active={activeTab === 'candidates'}>
+          Candidates
+        </Tab>
+        <Tab to={`/jobs/${jobId}/pipeline`} active={activeTab === 'pipeline'}>
+          Pipeline
+        </Tab>
+        {/* RC-08. Its own tab rather than a control inside RC-05: the
+            weighting belongs to the job, not to one candidate list. */}
+        <Tab to={`/jobs/${jobId}/ranking-weights`} active={activeTab === 'weights'}>
+          Ranking weights
+        </Tab>
         <li>
-          <NavLink
-            to={`/jobs/${jobId}`}
-            end
-            aria-current={activeTab === 'overview' ? 'page' : undefined}
-            className={`${base} ${
-              activeTab === 'overview'
-                ? 'border-primary-700 text-primary-700'
-                : 'border-transparent text-neutral-700 hover:text-neutral-900'
-            }`}
+          <span
+            aria-disabled="true"
+            className="-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 border-transparent px-1 pb-3 text-sm font-semibold text-neutral-300"
           >
-            Overview
-          </NavLink>
-        </li>
-        <li>
-          <NavLink
-            to={`/jobs/${jobId}/candidates`}
-            aria-current={activeTab === 'candidates' ? 'page' : undefined}
-            className={`${base} ${
-              activeTab === 'candidates'
-                ? 'border-primary-700 text-primary-700'
-                : 'border-transparent text-neutral-700 hover:text-neutral-900'
-            }`}
-          >
-            Candidates
-          </NavLink>
-        </li>
-        <li>
-          <NavLink
-            to={`/jobs/${jobId}/pipeline`}
-            aria-current={activeTab === 'pipeline' ? 'page' : undefined}
-            className={`${base} ${
-              activeTab === 'pipeline'
-                ? 'border-primary-700 text-primary-700'
-                : 'border-transparent text-neutral-700 hover:text-neutral-900'
-            }`}
-          >
-            Pipeline
-          </NavLink>
-        </li>
-        <li>
-          {/* RC-08. Its own tab rather than a control inside RC-05: the
-              weighting belongs to the job, not to one candidate list. */}
-          <NavLink
-            to={`/jobs/${jobId}/ranking-weights`}
-            aria-current={activeTab === 'weights' ? 'page' : undefined}
-            className={`${base} ${
-              activeTab === 'weights'
-                ? 'border-primary-700 text-primary-700'
-                : 'border-transparent text-neutral-700 hover:text-neutral-900'
-            }`}
-          >
-            Ranking weights
-          </NavLink>
-        </li>
-        <li>
-          <span aria-disabled="true" className={`${base} border-transparent text-neutral-300`}>
-            Settings <span className="text-xs uppercase">Later</span>
+            Settings
+            <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-2xs uppercase tracking-wide text-neutral-400">
+              Later
+            </span>
           </span>
         </li>
       </ul>

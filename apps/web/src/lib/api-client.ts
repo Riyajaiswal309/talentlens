@@ -206,6 +206,93 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 }
 
+/**
+ * Download a file the API streams (FR8.3 — `GET /v1/audit-logs/export`).
+ *
+ * WHY NOT A PLAIN `<a href>`. The access token lives in memory and travels as
+ * an `Authorization` header; the only cookie is the refresh token, and it is
+ * scoped `Path=/v1/auth`, so it is never sent to `/v1/audit-logs/export`. A
+ * bare link would arrive unauthenticated and answer 401. Appending the token to
+ * the query string would fix that and leak it into browser history and server
+ * logs, which is worse than the problem.
+ *
+ * So the request goes through the normal authenticated path and the response is
+ * turned into a download here. Errors still surface as `ApiError`, so a failed
+ * export renders like every other failure.
+ */
+export async function apiDownload(
+  path: string,
+  fallbackFilename: string,
+  options: Omit<RequestOptions, 'method' | 'body'> = {},
+): Promise<void> {
+  const url = buildUrl(path, options.query);
+  let response = await send(url, { ...options, method: 'GET' }, accessTokenProvider());
+
+  // One capped retry behind a silent refresh, matching `apiRequest`.
+  if (response.status === 401 && !options.skipAuthRecovery && unauthorizedRecovery) {
+    const token = await unauthorizedRecovery();
+    if (token) response = await send(url, { ...options, method: 'GET' }, token);
+  }
+
+  if (!response.ok) throw await readProblem(response, url);
+
+  // The server names the file in Content-Disposition; honour it when present.
+  const disposition = response.headers.get('content-disposition') ?? '';
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+  const filename = match?.[1] ? decodeURIComponent(match[1]) : fallbackFilename;
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // Released on the next tick: revoking synchronously can cancel the download
+  // in some browsers before it has started reading the blob.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+/**
+ * POST multipart form data (FR2.1 — the public application carries a resume).
+ *
+ * WHY NOT `api.post`. That wrapper sets `Content-Type: application/json` and
+ * `JSON.stringify`s the body, which would destroy a `FormData`. Here the header
+ * is deliberately OMITTED so the browser sets `multipart/form-data` together
+ * with the boundary — setting it by hand produces a boundary-less header the
+ * server cannot parse.
+ *
+ * `Idempotency-Key` is supported by `POST /v1/applications`: a candidate who
+ * double-submits, or whose connection drops mid-upload and retries, gets the
+ * same application back rather than two.
+ */
+export async function apiUpload<T>(
+  path: string,
+  form: FormData,
+  options: { idempotencyKey?: string; signal?: AbortSignal } = {},
+): Promise<T> {
+  const url = buildUrl(path);
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey;
+
+  // Public endpoint: no token is attached, and none is needed.
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: form,
+    signal: options.signal,
+    credentials: 'same-origin',
+  });
+
+  if (!response.ok) throw await readProblem(response, url);
+
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+  return (await response.json()) as T;
+}
+
 /** Convenience wrappers — the verb is the only thing most callers vary. */
 export const api = {
   get: <T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>

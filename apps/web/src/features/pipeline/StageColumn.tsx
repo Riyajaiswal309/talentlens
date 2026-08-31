@@ -29,35 +29,42 @@ export function StageColumn({
 }) {
   return (
     <section
-      className="flex w-72 shrink-0 flex-col rounded-md border border-neutral-300 bg-neutral-100"
+      /*
+        `min-h` keeps the six columns the same height whatever they hold, so a
+        board with one busy stage does not leave a ragged strip of dead space
+        beside the empty ones.
+      */
+      className="flex min-h-[26rem] w-72 shrink-0 flex-col rounded-lg border border-neutral-200 bg-neutral-100/70"
       aria-label={`${name}, ${count} ${count === 1 ? 'candidate' : 'candidates'}`}
     >
-      <header className="flex items-baseline justify-between gap-2 border-b border-neutral-300 px-3 py-2">
-        <h3 className="text-sm font-semibold text-neutral-900">
+      <header className="flex items-center justify-between gap-2 border-b border-neutral-200 px-3.5 py-3">
+        <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-900">
           {name}
           {isTerminal && (
             // Stated, never coloured: "terminal" describes the pipeline, not a
             // verdict on the candidate (§8.2, BR-01).
-            <span className="ml-2 rounded-sm border border-neutral-300 px-1.5 py-0.5 text-xs font-normal text-neutral-500">
+            <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-neutral-500">
               Final
             </span>
           )}
           {tone === 'unknown' && (
-            <span className="ml-2 rounded-sm border border-warning-700 px-1.5 py-0.5 text-xs font-normal text-warning-700">
+            <span className="rounded-full bg-warning-50 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-warning-700 ring-1 ring-inset ring-warning-200">
               Not on this job
             </span>
           )}
         </h3>
-        <div className="flex shrink-0 items-baseline gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {headerAction}
           {/* The count badge Flow 7 expects to update after a move. */}
-          <span className="font-mono text-xs font-semibold text-neutral-700">{count}</span>
+          <span className="inline-flex h-6 min-w-[1.5rem] items-center justify-center rounded-full bg-neutral-0 px-1.5 font-mono text-xs font-semibold tabular-nums text-neutral-700 ring-1 ring-inset ring-neutral-200">
+            {count}
+          </span>
         </div>
       </header>
 
-      <div className="flex-1 space-y-2 p-3">
+      <div className="flex-1 space-y-2.5 p-3">
         {count === 0 ? (
-          <p className="rounded-sm border border-dashed border-neutral-300 px-3 py-6 text-center text-xs text-neutral-500">
+          <p className="rounded-md border border-dashed border-neutral-300 px-3 py-8 text-center text-xs text-neutral-500">
             {emptyLabel}
           </p>
         ) : (

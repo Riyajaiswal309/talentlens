@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, SkeletonTable } from '../../components/Skeleton';
+import { ButtonLink, Card, Chip, PageHeader, buttonClass } from '../../components/ui';
 import { AiScoringBadge, JobStatusBadge } from './JobStatusBadge';
 import {
   JOB_STATUSES,
@@ -52,77 +53,68 @@ export function JobListPage() {
 
   return (
     <div>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs text-neutral-500">RC-02</p>
-          <h1 className="text-2xl font-semibold text-neutral-900">Jobs</h1>
-          <p className="mt-1 text-sm text-neutral-700">
-            Requisitions in your company. Open one to see its candidates.
-          </p>
-        </div>
-        {/* RC-02's primary action alongside "Open job" (Table 5.1). */}
-        <Link
-          to="/jobs/new"
-          className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
-        >
-          Create job
-        </Link>
-      </header>
+      <PageHeader
+        code="RC-02"
+        title="Jobs"
+        description="Requisitions in your company. Open one to see its candidates."
+        actions={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
+      />
 
-      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border border-neutral-300 bg-neutral-0 p-4">
-        <div>
-          <label htmlFor={statusId} className="mb-1 block text-sm font-semibold text-neutral-900">
-            Status
-          </label>
-          {/*
-            Exactly the three values of `enum JobStatus`. `ListJobsQueryDto`
-            validates with @IsEnum, so any other option would be a guaranteed
-            400 — the filter cannot offer more than the API accepts.
-          */}
-          <select
-            id={statusId}
-            value={status}
-            onChange={(event) => setStatus(event.target.value as JobStatus | '')}
-            className="h-10 rounded-sm border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900"
-          >
-            <option value="">All statuses</option>
-            {JOB_STATUSES.map((value) => (
-              <option key={value} value={value}>
-                {value[0]! + value.slice(1).toLowerCase()}
-              </option>
-            ))}
-          </select>
-        </div>
+      <Card className="mb-5 p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label
+              htmlFor={statusId}
+              className="mb-1.5 block text-xs font-semibold text-neutral-700"
+            >
+              Status
+            </label>
+            {/*
+              Exactly the three values of `enum JobStatus`. `ListJobsQueryDto`
+              validates with @IsEnum, so any other option would be a guaranteed
+              400 — the filter cannot offer more than the API accepts.
+            */}
+            <select
+              id={statusId}
+              value={status}
+              onChange={(event) => setStatus(event.target.value as JobStatus | '')}
+              className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
+            >
+              <option value="">All statuses</option>
+              {JOB_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {value[0]! + value.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div>
-          <label
-            htmlFor={departmentId}
-            className="mb-1 block text-sm font-semibold text-neutral-900"
-          >
-            Department
-          </label>
-          {/* Free text: `jobs.department` is a nullable string and nothing
-              enumerates the values in use, so there are no options to offer. */}
-          <input
-            id={departmentId}
-            type="text"
-            value={departmentInput}
-            onChange={(event) => setDepartmentInput(event.target.value)}
-            placeholder="e.g. Engineering"
-            className="h-10 w-56 rounded-sm border border-neutral-300 px-3 text-sm text-neutral-900"
-          />
-        </div>
+          <div>
+            <label
+              htmlFor={departmentId}
+              className="mb-1.5 block text-xs font-semibold text-neutral-700"
+            >
+              Department
+            </label>
+            {/* Free text: `jobs.department` is a nullable string and nothing
+                enumerates the values in use, so there are no options to offer. */}
+            <input
+              id={departmentId}
+              type="text"
+              value={departmentInput}
+              onChange={(event) => setDepartmentInput(event.target.value)}
+              placeholder="e.g. Engineering"
+              className="h-10 w-56 rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
+            />
+          </div>
 
-        {filtersActive && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
-          >
-            Clear filters
-          </button>
-        )}
-      </div>
+          {filtersActive && (
+            <button type="button" onClick={clearFilters} className={buttonClass('secondary')}>
+              Clear filters
+            </button>
+          )}
+        </div>
+      </Card>
 
       <JobListBody
         query={query}
@@ -183,11 +175,7 @@ function JobListBody({
         title="No jobs match these filters"
         description="No requisition in your company matches the status or department you selected."
         action={
-          <button
-            type="button"
-            onClick={onClearFilters}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
-          >
+          <button type="button" onClick={onClearFilters} className={buttonClass('secondary')}>
             Clear filters
           </button>
         }
@@ -198,14 +186,7 @@ function JobListBody({
         description="Requisitions your company creates will appear here."
         // Flow 1: "First-time RC-02 shows an empty state with a single Create
         // job CTA." One action, because there is nothing else to do here.
-        action={
-          <Link
-            to="/jobs/new"
-            className="inline-flex h-10 items-center rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600"
-          >
-            Create job
-          </Link>
-        }
+        action={<ButtonLink to="/jobs/new">Create job</ButtonLink>}
       />
     );
   }
@@ -216,19 +197,24 @@ function JobListBody({
         Paging keeps the old rows on screen; aria-busy plus the dimming says
         "these are being replaced" without the layout collapsing.
       */}
-      <div aria-busy={query.isFetching} className={query.isFetching ? 'opacity-60' : undefined}>
-        <ul className="divide-y divide-neutral-300 overflow-hidden rounded-md border border-neutral-300 bg-neutral-0">
-          {jobs.map((job) => (
-            <li key={job.id}>
-              <JobRow job={job} />
-            </li>
-          ))}
-        </ul>
+      <div
+        aria-busy={query.isFetching}
+        className={query.isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}
+      >
+        <Card className="overflow-hidden" as="div">
+          <ul className="divide-y divide-neutral-200">
+            {jobs.map((job) => (
+              <li key={job.id}>
+                <JobRow job={job} />
+              </li>
+            ))}
+          </ul>
+        </Card>
       </div>
 
       <nav
         aria-label="Pagination"
-        className="mt-4 flex items-center justify-between text-sm text-neutral-700"
+        className="mt-5 flex items-center justify-between text-sm text-neutral-500"
       >
         <span>
           Page {pageNumber}
@@ -241,7 +227,7 @@ function JobListBody({
             onClick={onBack}
             disabled={!canGoBack}
             aria-disabled={!canGoBack}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+            className={buttonClass('secondary')}
           >
             Previous
           </button>
@@ -250,7 +236,7 @@ function JobListBody({
             onClick={() => nextCursor && onNext(nextCursor)}
             disabled={!nextCursor}
             aria-disabled={!nextCursor}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+            className={buttonClass('secondary')}
           >
             Next
           </button>
@@ -264,17 +250,17 @@ function JobRow({ job }: { job: JobResponse }) {
   const skills = toSkills(job.requiredSkills);
 
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-4 hover:bg-neutral-100">
-      <div className="min-w-0">
+    <div className="group flex flex-wrap items-start justify-between gap-4 px-5 py-4 transition-colors hover:bg-neutral-50">
+      <div className="min-w-0 flex-1">
         {/* The link is the title — "Open job" is RC-02's primary action. */}
         <Link
           to={`/jobs/${job.id}`}
-          className="rounded-sm text-base font-semibold text-primary-700 hover:underline"
+          className="rounded-sm text-base font-semibold text-neutral-900 transition-colors group-hover:text-primary-700"
         >
           {job.title}
         </Link>
 
-        <p className="mt-1 text-sm text-neutral-700">
+        <p className="mt-1 text-sm text-neutral-500">
           {/* Every one of these is nullable in JobResponse; only what the API
               actually returned is shown, joined without empty separators. */}
           {[job.department, job.location, job.employmentType, job.experienceLevel]
@@ -283,13 +269,10 @@ function JobRow({ job }: { job: JobResponse }) {
         </p>
 
         {skills.length > 0 && (
-          <ul className="mt-2 flex flex-wrap gap-1">
+          <ul className="mt-2.5 flex flex-wrap gap-1.5">
             {skills.map((skill) => (
-              <li
-                key={skill}
-                className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700"
-              >
-                {skill}
+              <li key={skill}>
+                <Chip>{skill}</Chip>
               </li>
             ))}
           </ul>

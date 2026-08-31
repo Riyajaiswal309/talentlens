@@ -3,6 +3,11 @@ import { RequireAuth } from './auth/RequireAuth';
 import { RequireRole } from './auth/RequireRole';
 import { RecruiterLayout } from './layouts/RecruiterLayout';
 import { LoginPage } from './features/auth/LoginPage';
+import { LandingPage } from './features/marketing/LandingPage';
+import { PublicJobsPage } from './features/careers/PublicJobsPage';
+import { PublicJobDetailPage } from './features/careers/PublicJobDetailPage';
+import { ApplyPage } from './features/careers/ApplyPage';
+import { CandidateSchedulePage } from './features/scheduling/CandidateSchedulePage';
 import { JobListPage } from './features/jobs/JobListPage';
 import { JobDetailPage } from './features/jobs/JobDetailPage';
 import { JobCreatePage } from './features/jobs/JobCreatePage';
@@ -13,6 +18,8 @@ import { FunnelPage } from './features/analytics/FunnelPage';
 import { PipelineBoard } from './features/pipeline/PipelineBoard';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { RankingWeightsPage } from './features/jobs/RankingWeightsPage';
+import { AdminUsersPage } from './features/admin/AdminUsersPage';
+import { AuditLogPage } from './features/admin/AuditLogPage';
 
 /**
  * Route table.
@@ -32,7 +39,33 @@ import { RankingWeightsPage } from './features/jobs/RankingWeightsPage';
 export function App() {
   return (
     <Routes>
+      {/*
+        PUBLIC. The marketing page is the only route besides /login outside the
+        guards. It reads no API, so there is no tenant data on it to protect —
+        and it must stay that way: a data call here would run unauthenticated.
+      */}
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
+
+      {/*
+        PUBLIC CAREERS (FR2.1, FR2.4). Outside every guard, deliberately: a
+        candidate has no account, and `GET /v1/public/jobs` plus
+        `POST /v1/applications` are `@Public()` for exactly this flow. These
+        routes must never call a tenant-scoped endpoint — there is no session to
+        scope them with.
+      */}
+      <Route path="/careers" element={<PublicJobsPage />} />
+      <Route path="/careers/:jobId" element={<PublicJobDetailPage />} />
+      <Route path="/careers/:jobId/apply" element={<ApplyPage />} />
+
+      {/*
+        PUBLIC SCHEDULING (FR6.2). Outside every guard for the same reason as
+        the careers routes, and one more besides: `GET /v1/scheduling/:token`
+        and its confirm are `@Public()` because the signed token IS the
+        credential. Putting this behind `RequireAuth` would lock out the only
+        person it is meant for — a candidate, who has no account in this build.
+      */}
+      <Route path="/schedule/:token" element={<CandidateSchedulePage />} />
 
       <Route element={<RequireAuth />}>
         <Route element={<RequireRole />}>
@@ -71,14 +104,29 @@ export function App() {
             <Route path="/analytics" element={<FunnelPage />} />
           </Route>
         </Route>
+
+        {/*
+          ADMINISTRATOR ONLY (FR8.1) — a SIBLING of the recruiter gate, not a
+          child of it, so it narrows the role rather than inheriting
+          RECRUITER|ADMIN. Every endpoint these screens call is `@Roles(ADMIN)`,
+          so a Recruiter reaching them would meet a 403 on every request;
+          refusing at the route states the reason once instead.
+        */}
+        <Route element={<RequireRole allow={['ADMIN']} />}>
+          <Route element={<RecruiterLayout />}>
+            <Route path="/admin/users" element={<AdminUsersPage />} />
+            <Route path="/admin/audit" element={<AuditLogPage />} />
+          </Route>
+        </Route>
       </Route>
 
       {/*
-        Unknown paths — and `/` — go to RC-01, the workspace's landing screen.
-        That route sits inside the guards, so a signed-out visitor is forwarded
+        Unknown paths go to RC-01, the workspace's landing screen. `/` is no
+        longer one of them — it now serves the public marketing page above.
+        This route sits inside the guards, so a signed-out visitor is forwarded
         on to /login by `RequireAuth` and a Hiring Manager still meets
-        `RequireRole`'s refusal: one rule covers all three cases, and the
-        redirect itself grants nothing.
+        `RequireRole`'s refusal: one rule covers both cases, and the redirect
+        itself grants nothing.
       */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

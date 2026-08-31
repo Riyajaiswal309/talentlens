@@ -108,7 +108,7 @@ export function SkillsInput({
           type="button"
           onClick={add}
           disabled={full || !draft.trim() || tooLong}
-          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100 disabled:opacity-40"
         >
           Add
         </button>

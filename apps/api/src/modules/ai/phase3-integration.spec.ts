@@ -8,6 +8,8 @@ import { randomUUID } from 'node:crypto';
 import { AiModule } from './ai.module';
 import { AiScoringPort } from './ai-scoring.port';
 import { AiServiceClient, type ParseResult } from './ai-service.client';
+import { ResumeParserPort, type ResumeParseResult } from './parsing/resume-parser.port';
+import { MatchScorerPort } from './scoring/match-scorer.port';
 import { DEFAULT_RANKING_WEIGHTS } from './dto/ranking-weights.dto';
 import { CONFIDENCE_THRESHOLD } from './dto/parse-review.dto';
 import { ResumeParseWorker } from './resume-parse.worker';
@@ -79,6 +81,20 @@ const GOOD_SCORE = {
   versionTag: 'not-trained-v0',
 };
 
+/** Widens a legacy `ParseResult` fixture to the FR3 `ResumeParseResult` shape. */
+function toParserResult(parse: ParseResult): ResumeParseResult {
+  return {
+    ...parse,
+    // The legacy fixture types skills as unknown[]; the port narrows to string[].
+    skills: (parse.skills as unknown[]).filter((s): s is string => typeof s === 'string'),
+    contact: { name: null, email: null, phone: null, location: null },
+    overallConfidence: parse.overallConfidence,
+    parserName: 'rule-based-local',
+    parserVersion: 'v1',
+    limitations: [],
+  };
+}
+
 describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -88,6 +104,14 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
   let tokens: TokenService;
   let worker: ResumeParseWorker;
   let ai: AiServiceClient;
+  /*
+   * FR3/FR4 moved extraction and scoring behind ports; the worker no longer
+   * talks to `AiServiceClient`. These are the collaborators it actually uses,
+   * and mocking them here also keeps `pdf-parse` out of the Jest VM, which
+   * cannot service pdfjs's dynamic import without --experimental-vm-modules.
+   */
+  let parser: ResumeParserPort;
+  let scorer: MatchScorerPort;
   let storage: StorageService;
   let port: AiScoringPort;
 
@@ -184,6 +208,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     tokens = moduleRef.get(TokenService);
     worker = moduleRef.get(ResumeParseWorker);
     ai = moduleRef.get(AiServiceClient);
+    parser = moduleRef.get(ResumeParserPort);
+    scorer = moduleRef.get(MatchScorerPort);
     storage = moduleRef.get(StorageService);
     port = moduleRef.get(AiScoringPort);
 
@@ -278,7 +304,7 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
       const applicationId = await newApplication('life1', unscoredJob);
       const resumeId = await resumeOf(applicationId);
 
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
 
       await expect(
         owner.resume.findUniqueOrThrow({ where: { id: resumeId } }),
@@ -298,7 +324,7 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('records per-field confidence for FR3.2', async () => {
       const applicationId = await newApplication('life2', unscoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
@@ -310,7 +336,7 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('a parse failure marks FAILED and leaves the application intact', async () => {
       const applicationId = await newApplication('life3', unscoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockRejectedValue(new Error('AI service unavailable'));
+      jest.spyOn(parser, 'parse').mockRejectedValue(new Error('AI service unavailable'));
 
       await expect(worker.handle({ resumeId, correlationId: CORRELATION })).rejects.toThrow(
         'AI service unavailable',
@@ -328,7 +354,7 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('re-parsing updates the existing profile rather than duplicating it', async () => {
       const applicationId = await newApplication('life4', unscoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
       await worker.handle({ resumeId, correlationId: CORRELATION });
@@ -350,8 +376,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('writes score, rationale, feature vector and model version together', async () => {
       const applicationId = await newApplication('score1', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
@@ -369,8 +395,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('BR-02: no rationale means NO row at all', async () => {
       const applicationId = await newApplication('score-br02', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue({
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue({
         ...GOOD_SCORE,
         rationale: { summary: '', factors: [] },
       });
@@ -386,8 +412,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('BR-07: a feature outside Table 19.1 aborts the write', async () => {
       const applicationId = await newApplication('score-br07', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue({
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue({
         ...GOOD_SCORE,
         featureVector: { ...GOOD_SCORE.featureVector, candidate_age: 34 },
       });
@@ -402,12 +428,12 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('FR4.5: no score is written when ai_scoring_enabled is false', async () => {
       const applicationId = await newApplication('score-off', unscoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      const scorer = jest.spyOn(ai, 'score');
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      const scoreSpy = jest.spyOn(scorer, 'score');
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
-      expect(scorer).not.toHaveBeenCalled();
+      expect(scoreSpy).not.toHaveBeenCalled();
       await expect(owner.matchScore.count({ where: { applicationId } })).resolves.toBe(0);
     });
 
@@ -415,8 +441,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('FR4.4: writes score.generated', async () => {
       const applicationId = await newApplication('score-audit', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
@@ -434,12 +460,12 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
       const custom = { ...DEFAULT_RANKING_WEIGHTS, skill_overlap: 0.5, semantic_similarity: 0.1 };
       await owner.job.update({ where: { id: scoredJob }, data: { rankingWeights: custom } });
 
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      const scorer = jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      const scoreSpy = jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
-      expect(scorer).toHaveBeenCalledWith(expect.objectContaining({ weights: custom }));
+      expect(scoreSpy).toHaveBeenCalledWith(expect.objectContaining({ weights: custom }));
       await owner.job.update({ where: { id: scoredJob }, data: { rankingWeights: Prisma.DbNull } });
     });
 
@@ -447,8 +473,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('BR-01: scoring never touches the stage', async () => {
       const applicationId = await newApplication('score-br01', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
 
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
@@ -472,8 +498,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('getScore returns the persisted score with its rationale', async () => {
       const applicationId = await newApplication('seam2', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
       const result = await port.getScore(applicationId);
@@ -490,8 +516,8 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     it('the score surfaces on GET /jobs/:id/candidates', async () => {
       const applicationId = await newApplication('seam3', scoredJob);
       const resumeId = await resumeOf(applicationId);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
-      jest.spyOn(ai, 'score').mockResolvedValue(GOOD_SCORE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
+      jest.spyOn(scorer, 'score').mockReturnValue(GOOD_SCORE);
       await worker.handle({ resumeId, correlationId: CORRELATION });
 
       const response = await request(app.getHttpServer())
@@ -656,7 +682,7 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     beforeAll(async () => {
       reviewApplication = await newApplication('review', unscoredJob);
       const resumeId = await resumeOf(reviewApplication);
-      jest.spyOn(ai, 'parse').mockResolvedValue(GOOD_PARSE);
+      jest.spyOn(parser, 'parse').mockResolvedValue(toParserResult(GOOD_PARSE));
       await worker.handle({ resumeId, correlationId: CORRELATION });
       jest.restoreAllMocks();
       jest.spyOn(storage, 'readText').mockResolvedValue('python sql 6 years B.Tech');

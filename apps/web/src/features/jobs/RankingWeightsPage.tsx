@@ -67,7 +67,11 @@ export function RankingWeightsPage() {
         first left the page showing a skeleton forever instead of the refusal.
       */}
       {query.isError ? (
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState
+          error={query.error}
+          onRetry={() => void query.refetch()}
+          as={job.isError ? 'h1' : 'h2'}
+        />
       ) : query.isPending || !draft ? (
         <LoadingState label="Loading ranking weights…">
           <div className="space-y-4">
@@ -115,7 +119,7 @@ function WeightsForm({
 
   return (
     <div className="space-y-4">
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <p className="text-sm text-neutral-700">
           {view.isDefault ? (
             <>
@@ -143,7 +147,7 @@ function WeightsForm({
         </p>
       )}
 
-      <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+      <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
         <h3 className="text-base font-semibold text-neutral-900">Features</h3>
         <p className="mt-1 text-sm text-neutral-700">
           The six inputs PRD Table 19.1 permits. Each between {MIN_WEIGHT} and {MAX_WEIGHT}.
@@ -201,7 +205,7 @@ function WeightsForm({
           onClick={() => save.mutate(draft)}
           disabled={closed || save.isPending || !balanced || !dirty}
           aria-disabled={closed || save.isPending || !balanced || !dirty}
-          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-colors hover:bg-primary-800 disabled:opacity-40"
         >
           {save.isPending ? 'Saving…' : 'Save weighting'}
         </button>
@@ -209,14 +213,14 @@ function WeightsForm({
           type="button"
           onClick={() => onDraftChange(view.weights)}
           disabled={!dirty || save.isPending}
-          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100 disabled:opacity-40"
         >
           Reset to saved
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100"
         >
           Back to the job
         </button>

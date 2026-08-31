@@ -13,6 +13,7 @@ import { InterviewsModule } from './modules/interviews/interviews.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PipelineModule } from './modules/pipeline/pipeline.module';
+import { TagsModule } from './modules/tags/tags.module';
 import { ScorecardsModule } from './modules/scorecards/scorecards.module';
 import { HealthController } from './health/health.controller';
 
@@ -38,6 +39,7 @@ import { HealthController } from './health/health.controller';
     JobsModule,
     ApplicationsModule,
     PipelineModule,
+    TagsModule,
     ScorecardsModule,
     AiModule,
     AdminModule,

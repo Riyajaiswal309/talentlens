@@ -75,10 +75,40 @@ interface ApplicationDetailResponse {
     phone: string | null;
   };
   resume: {
-    /** Always PENDING in Phase 2 — no parser exists (FR2.5). */
     parseStatus: string;
     mimeType: string;
     uploadedAt: string;
+    /**
+     * FR3.1 / FR3.2 — what the parser actually read.
+     *
+     * NULL until a parse has produced one, which is not the same as an empty
+     * profile: null means "no parse has completed", while a profile whose
+     * fields are all null means "parsed, and nothing could be read". RC-06
+     * words those two differently.
+     */
+    parsedProfile: {
+      /**
+       * FR2.2 — the candidate's OWN details, so the owner may review and
+       * correct them. Visible to every role that can read the application.
+       */
+      contact: unknown;
+      skills: unknown;
+      /**
+       * INTERNAL EXTRACTION METADATA — null for a CANDIDATE caller.
+       *
+       * Same rule as `score` and `source` above (§24.2 Table 24.1): a
+       * candidate is the subject of the assessment, not a reader of how it was
+       * produced. Rule confidences and the parser's identity say nothing about
+       * their application and everything about our internals, so they are
+       * withheld. `contact` and `skills` stay visible because FR2.2 exists to
+       * let the owner correct exactly those.
+       */
+      fieldConfidence: unknown;
+      confidenceScore: number | null;
+      /** Provenance — `rule-based-local` / `v1`, never a model name. */
+      parserName: string | null;
+      parserVersion: string | null;
+    } | null;
   } | null;
   /**
    * RC-06 renders a score panel. Resolved through AiScoringPort.
@@ -89,6 +119,26 @@ interface ApplicationDetailResponse {
    * not an audience for it; §24.5 makes a candidate-facing explanation a
    * separate request process, not this field.
    */
+  /**
+   * FR5.4 — the stage transitions this application has been through.
+   *
+   * NULL for a CANDIDATE caller, following `score`, `source` and the parser
+   * internals: who moved them and when is the hiring team's working record,
+   * not the subject's. Ordered oldest-first.
+   *
+   * The FIRST stage has no entry, and that is correct rather than missing: a
+   * row is written on transition, and creation is not a transition. The UI
+   * words the opening state from `appliedAt`.
+   */
+  stageHistory:
+    | {
+        fromStage: string | null;
+        toStage: string;
+        changedAt: string;
+        /** Denormalised, as `audit_logs` does — no internal user id. */
+        actorEmail: string;
+      }[]
+    | null;
   score: WireScore | null;
   /**
    * FR7.3 — how this application arrived.
@@ -115,10 +165,35 @@ function sourceFor(user: AuthenticatedUser, application: ApplicationDetail): str
   return application.source;
 }
 
+/**
+ * FR3.2 — may this caller see HOW the profile was produced?
+ *
+ * Mirrors `sourceFor` above, and for the same reason: §24.2 gives a Candidate
+ * no view of internal assessment machinery. They keep `contact` and `skills`,
+ * which FR2.2 requires them to be able to review; the rule confidences and the
+ * parser's identity are ours, not theirs.
+ */
+function showsParserInternals(user: AuthenticatedUser): boolean {
+  return user.role !== UserRole.CANDIDATE;
+}
+
+/**
+ * FR5.4 — may this caller see the pipeline's working record?
+ *
+ * Same rule and same reason as `showsParserInternals`: §24.2 gives a Candidate
+ * no view of internal hiring machinery. They can see their CURRENT stage on
+ * their own application; who moved them, when, and from where is the team's.
+ */
+function showsStageHistory(user: AuthenticatedUser): boolean {
+  return user.role !== UserRole.CANDIDATE;
+}
+
 function toDetailResponse(
   application: ApplicationDetail,
   score: WireScore | null,
   source: string | null,
+  parserInternals: boolean,
+  stageHistoryVisible: boolean,
 ): ApplicationDetailResponse {
   return {
     id: application.id,
@@ -143,7 +218,33 @@ function toDetailResponse(
           parseStatus: application.resume.parseStatus,
           mimeType: application.resume.mimeType,
           uploadedAt: application.resume.createdAt.toISOString(),
+          // FR3.1 / FR3.2 — present only once a parse has written one.
+          parsedProfile: application.resume.parsedProfile
+            ? {
+                contact: application.resume.parsedProfile.contact,
+                skills: application.resume.parsedProfile.skills,
+                // Withheld from a CANDIDATE — see `showsParserInternals`.
+                fieldConfidence: parserInternals
+                  ? application.resume.parsedProfile.fieldConfidence
+                  : null,
+                confidenceScore: parserInternals
+                  ? application.resume.parsedProfile.confidenceScore
+                  : null,
+                parserName: parserInternals ? application.resume.parsedProfile.parserName : null,
+                parserVersion: parserInternals
+                  ? application.resume.parsedProfile.parserVersion
+                  : null,
+              }
+            : null,
         }
+      : null,
+    stageHistory: stageHistoryVisible
+      ? application.stageHistory.map((entry) => ({
+          fromStage: entry.fromStage,
+          toStage: entry.toStage,
+          changedAt: entry.changedAt.toISOString(),
+          actorEmail: entry.actor.email,
+        }))
       : null,
     score,
     source,
@@ -408,7 +509,13 @@ export class ApplicationsController {
     const score =
       user.role === UserRole.CANDIDATE ? null : toWireScore(await this.ai.getScore(application.id));
 
-    return toDetailResponse(application, score, sourceFor(user, application));
+    return toDetailResponse(
+      application,
+      score,
+      sourceFor(user, application),
+      showsParserInternals(user),
+      showsStageHistory(user),
+    );
   }
 
   /**

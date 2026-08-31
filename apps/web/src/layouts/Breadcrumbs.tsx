@@ -84,6 +84,11 @@ const STATIC_LABELS: Record<string, string> = {
   jobs: 'Jobs',
   candidates: 'Candidates',
   pipeline: 'Pipeline',
+  // Administrator section (FR8.1, FR8.3). Without these the trail renders the
+  // raw path — "admin › audit" — which is a URL, not a label.
+  admin: 'Administration',
+  users: 'Users',
+  audit: 'Audit log',
 };
 
 /**

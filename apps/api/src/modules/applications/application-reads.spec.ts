@@ -6,6 +6,7 @@ import { JobStatus, UserRole } from '@prisma/client';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { ApplicationsModule } from './applications.module';
+import { TagsModule } from '../tags/tags.module';
 import { ApplicationsService } from './applications.service';
 import { CommonModule } from '../../common/common.module';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -97,6 +98,8 @@ describe('Application reads (BR-06 access control)', () => {
         AuthModule,
         JobsModule,
         ApplicationsModule,
+        // FR5.2 — tag routes hang off /applications and are exercised below.
+        TagsModule,
       ],
     }).compile();
 
@@ -235,6 +238,360 @@ describe('Application reads (BR-06 access control)', () => {
         candidate: { fullName: 'Owner Candidate' },
       });
       expect(response.body.job.title).toBe(`Assigned ${suffix}`);
+    });
+
+    /**
+     * FR5.2 — application tags.
+     *
+     * The access decision is that CANDIDATE is absent from the controller
+     * entirely, so these assert refusal at the route rather than a filtered
+     * response, plus the tenant and duplicate rules.
+     */
+    describe('tags (FR5.2)', () => {
+      afterEach(async () => {
+        await prisma.applicationTag.deleteMany({
+          where: { applicationId: { in: [ownedApplicationId, applicationInB] } },
+        });
+        /*
+         * The audit rows these tests emit must go too: `audit_logs.company_id`
+         * is ON DELETE RESTRICT (amendment A4), so leaving them blocks the
+         * suite's own `company.deleteMany` teardown. Same cleanup the pipeline
+         * specs already do for their transitions.
+         */
+        await prisma.auditLog.deleteMany({
+          where: { action: { in: ['application.tagged', 'application.untagged'] } },
+        });
+      });
+
+      it('lets a recruiter add, list and remove a tag', async () => {
+        const created = await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .send({ label: 'Strong communicator' })
+          .expect(201);
+
+        expect(created.body.label).toBe('Strong communicator');
+        expect(created.body.createdByEmail).toContain('@');
+        // No internal identifiers alongside the actor.
+        expect(created.body).not.toHaveProperty('createdBy');
+
+        const listed = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(200);
+        expect(listed.body.data).toHaveLength(1);
+
+        await request(app.getHttpServer())
+          .delete(`/applications/${ownedApplicationId}/tags/${created.body.id}`)
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(204);
+
+        const after = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(200);
+        expect(after.body.data).toHaveLength(0);
+      });
+
+      it('refuses a CANDIDATE outright — tags are staff-only', async () => {
+        await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(candidateOwner)))
+          .expect(403);
+
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(candidateOwner)))
+          .send({ label: 'self-added' })
+          .expect(403);
+      });
+
+      it('rejects a duplicate case-insensitively, in the database', async () => {
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .send({ label: 'Python' })
+          .expect(201);
+
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .send({ label: 'python' })
+          .expect(409);
+      });
+
+      it('rejects an empty or over-long label', async () => {
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .send({ label: '   ' })
+          .expect(400);
+
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterA)))
+          .send({ label: 'x'.repeat(41) })
+          .expect(400);
+      });
+
+      it('404s a recruiter from another tenant (BR-06, never 403)', async () => {
+        await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterB)))
+          .expect(404);
+
+        await request(app.getHttpServer())
+          .post(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(recruiterB)))
+          .send({ label: 'cross-tenant' })
+          .expect(404);
+      });
+
+      it('404s a Hiring Manager on a job they are not assigned to', async () => {
+        await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}/tags`)
+          .set(auth(await tokenFor(hmUnassigned)))
+          .expect(404);
+      });
+
+      describe('bulk (FR5.2)', () => {
+        it('tags every accessible application and reports the rest', async () => {
+          const res = await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(recruiterA)))
+            // One real, one from another tenant, one that does not exist.
+            .send({
+              applicationIds: [
+                ownedApplicationId,
+                applicationInB,
+                '00000000-0000-4000-8000-0000000000ff',
+              ],
+              label: 'Shortlist',
+            })
+            .expect(200);
+
+          expect(res.body.tagged).toEqual([ownedApplicationId]);
+          expect(res.body.alreadyTagged).toEqual([]);
+          // NOT silently dropped — each is named with a reason.
+          expect(res.body.failed).toHaveLength(2);
+          expect(res.body.failed.map((f: { id: string }) => f.id).sort()).toEqual(
+            [applicationInB, '00000000-0000-4000-8000-0000000000ff'].sort(),
+          );
+          // BR-06 — the same wording for missing and cross-tenant.
+          expect(new Set(res.body.failed.map((f: { reason: string }) => f.reason)).size).toBe(1);
+
+          // The cross-tenant application was genuinely not written to.
+          const leaked = await prisma.applicationTag.count({
+            where: { applicationId: applicationInB },
+          });
+          expect(leaked).toBe(0);
+        });
+
+        it('reports an already-tagged application separately from a new one', async () => {
+          await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(recruiterA)))
+            .send({ applicationIds: [ownedApplicationId], label: 'Shortlist' })
+            .expect(200);
+
+          const second = await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(recruiterA)))
+            // Different case — the database index is case-insensitive.
+            .send({ applicationIds: [ownedApplicationId], label: 'SHORTLIST' })
+            .expect(200);
+
+          expect(second.body.tagged).toEqual([]);
+          expect(second.body.alreadyTagged).toEqual([ownedApplicationId]);
+          // Exactly one row, so no duplicate slipped past the index.
+          expect(
+            await prisma.applicationTag.count({ where: { applicationId: ownedApplicationId } }),
+          ).toBe(1);
+        });
+
+        it('writes NO audit row when nothing was actually tagged', async () => {
+          await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(recruiterA)))
+            .send({ applicationIds: [ownedApplicationId], label: 'Shortlist' })
+            .expect(200);
+
+          const afterFirst = await prisma.auditLog.count({
+            where: { action: 'application.tagged' },
+          });
+
+          await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(recruiterA)))
+            .send({ applicationIds: [ownedApplicationId], label: 'Shortlist' })
+            .expect(200);
+
+          // A no-op must not claim a write happened.
+          expect(await prisma.auditLog.count({ where: { action: 'application.tagged' } })).toBe(
+            afterFirst,
+          );
+        });
+
+        it('refuses a CANDIDATE and an unauthenticated caller', async () => {
+          await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(candidateOwner)))
+            .send({ applicationIds: [ownedApplicationId], label: 'nope' })
+            .expect(403);
+
+          await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .send({ applicationIds: [ownedApplicationId], label: 'nope' })
+            .expect(401);
+        });
+
+        it('tags nothing for a Hiring Manager on an unassigned job', async () => {
+          const res = await request(app.getHttpServer())
+            .post('/applications/bulk/tags')
+            .set(auth(await tokenFor(hmUnassigned)))
+            .send({ applicationIds: [ownedApplicationId], label: 'hm-attempt' })
+            .expect(200);
+
+          expect(res.body.tagged).toEqual([]);
+          expect(res.body.failed).toHaveLength(1);
+        });
+
+        it('rejects an empty label, an empty selection and a bad id', async () => {
+          const bad = [
+            { applicationIds: [ownedApplicationId], label: '  ' },
+            { applicationIds: [], label: 'x' },
+            { applicationIds: ['not-a-uuid'], label: 'x' },
+            { applicationIds: [ownedApplicationId], label: 'x'.repeat(41) },
+          ];
+          for (const body of bad) {
+            await request(app.getHttpServer())
+              .post('/applications/bulk/tags')
+              .set(auth(await tokenFor(recruiterA)))
+              .send(body)
+              .expect(400);
+          }
+        });
+      });
+
+      it('rejects a malformed application id as 400', async () => {
+        await request(app.getHttpServer())
+          .get('/applications/not-a-uuid/tags')
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(400);
+      });
+    });
+
+    /**
+     * FR5.4 — "every stage transition is recorded with actor and timestamp".
+     * Exposed to the hiring team, withheld from the subject like `score`.
+     */
+    it('returns stage history to staff, chronologically, and withholds it from the candidate', async () => {
+      await prisma.stageHistory.createMany({
+        data: [
+          {
+            applicationId: ownedApplicationId,
+            fromStage: 'Applied',
+            toStage: 'Screening',
+            changedBy: recruiterA,
+            changedAt: new Date('2026-08-01T10:00:00.000Z'),
+          },
+          {
+            applicationId: ownedApplicationId,
+            fromStage: 'Screening',
+            toStage: 'Interview',
+            changedBy: recruiterA,
+            changedAt: new Date('2026-08-05T09:00:00.000Z'),
+          },
+        ],
+      });
+
+      try {
+        const asRecruiter = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}`)
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(200);
+
+        const history = asRecruiter.body.stageHistory;
+        expect(history).toHaveLength(2);
+        // Oldest first — a timeline, not a feed.
+        expect(history[0].toStage).toBe('Screening');
+        expect(history[1].toStage).toBe('Interview');
+        expect(history[0].fromStage).toBe('Applied');
+        expect(history[0].actorEmail).toContain('@');
+        // No internal identifiers leak alongside the actor.
+        expect(history[0]).not.toHaveProperty('changedBy');
+        expect(history[0]).not.toHaveProperty('id');
+        expect(history[0]).not.toHaveProperty('applicationId');
+
+        const asCandidate = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}`)
+          .set(auth(await tokenFor(candidateOwner)))
+          .expect(200);
+
+        // Null, not [] — the candidate is told nothing, not "no history".
+        expect(asCandidate.body.stageHistory).toBeNull();
+      } finally {
+        await prisma.stageHistory.deleteMany({ where: { applicationId: ownedApplicationId } });
+      }
+    });
+
+    /**
+     * FR3.2 / §24.2 Table 24.1 — a Candidate reviews their own extracted
+     * details (FR2.2) but never sees HOW they were produced, exactly as they
+     * never see `score` or `source`. Rule confidences and the parser's identity
+     * describe our internals, not their application.
+     */
+    it('withholds parser internals from the candidate but not from the recruiter', async () => {
+      const resume = await prisma.resume.findFirst({
+        where: { applicationId: ownedApplicationId },
+      });
+      await prisma.parsedProfile.create({
+        data: {
+          resumeId: resume!.id,
+          contact: {
+            name: 'Owner Candidate',
+            email: 'owner@example.com',
+            phone: null,
+            location: null,
+          },
+          skills: ['TypeScript'],
+          fieldConfidence: { 'contact.email': 0.95 },
+          confidenceScore: 0.84,
+          parserName: 'rule-based-local',
+          parserVersion: 'v1',
+        },
+      });
+
+      try {
+        const asCandidate = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}`)
+          .set(auth(await tokenFor(candidateOwner)))
+          .expect(200);
+
+        const candidateProfile = asCandidate.body.resume.parsedProfile;
+        // FR2.2 — their own details stay visible so they can be corrected.
+        expect(candidateProfile.contact).toMatchObject({ name: 'Owner Candidate' });
+        expect(candidateProfile.skills).toEqual(['TypeScript']);
+        // Internals withheld, following `score` and `source`.
+        expect(candidateProfile.fieldConfidence).toBeNull();
+        expect(candidateProfile.confidenceScore).toBeNull();
+        expect(candidateProfile.parserName).toBeNull();
+        expect(candidateProfile.parserVersion).toBeNull();
+
+        const asRecruiter = await request(app.getHttpServer())
+          .get(`/applications/${ownedApplicationId}`)
+          .set(auth(await tokenFor(recruiterA)))
+          .expect(200);
+
+        const recruiterProfile = asRecruiter.body.resume.parsedProfile;
+        expect(recruiterProfile.fieldConfidence).toEqual({ 'contact.email': 0.95 });
+        expect(recruiterProfile.confidenceScore).toBe(0.84);
+        expect(recruiterProfile.parserName).toBe('rule-based-local');
+        expect(recruiterProfile.parserVersion).toBe('v1');
+      } finally {
+        // Left as the other tests found it — they assert on this application.
+        await prisma.parsedProfile.deleteMany({ where: { resumeId: resume!.id } });
+      }
     });
 
     /**

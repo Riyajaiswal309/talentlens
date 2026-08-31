@@ -15,6 +15,54 @@ import type { WireScore } from './useJobCandidates';
  * is Recruiter/Admin only, so a null here means "no score exists" rather than
  * "withheld from you".
  */
+/**
+ * FR3.1 — extracted contact fields. Every one is optional because an absent
+ * field must stay absent; the parser never invents a value.
+ */
+export interface ParsedContactView {
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  location?: string | null;
+}
+
+/**
+ * FR3.2 — the parsed profile as RC-06 reads it.
+ *
+ * `fieldConfidence` values are RULE-BASED EXTRACTION STRENGTH, not model
+ * probabilities: nothing here is trained or calibrated. The UI must say so
+ * wherever it shows a number — see `PARSE_REVIEW_THRESHOLD`.
+ */
+export interface ParsedProfileView {
+  contact: ParsedContactView | null;
+  skills: string[] | null;
+  fieldConfidence: Record<string, number> | null;
+  confidenceScore: number | null;
+  /** Provenance, e.g. `rule-based-local` / `v1`. Never a model name. */
+  parserName: string | null;
+  parserVersion: string | null;
+}
+
+/**
+ * The server flags anything below this for human review (`ParseReviewService`).
+ * Mirrored here so the UI marks the same fields the review queue would.
+ */
+export const PARSE_REVIEW_THRESHOLD = 0.75;
+
+/**
+ * FR5.4 — one recorded stage transition.
+ *
+ * `fromStage` is null only where the API says so; the FIRST stage has no entry
+ * at all, because a row is written on transition and creation is not one.
+ */
+export interface StageHistoryEntry {
+  fromStage: string | null;
+  toStage: string;
+  changedAt: string;
+  /** Denormalised on the server — no internal user id is exposed. */
+  actorEmail: string;
+}
+
 export interface ApplicationDetailResponse {
   id: string;
   /** First 8 characters of the id, upper-cased — the server derives it. */
@@ -40,11 +88,24 @@ export interface ApplicationDetailResponse {
    * a separate concern nothing has specified.
    */
   resume: {
-    /** FR2.5 — always `PENDING` in Phase 2; no parser runs. */
+    /** PENDING → PROCESSING → COMPLETED | FAILED (FR2.5, FR3.2). */
     parseStatus: string;
     mimeType: string;
     uploadedAt: string;
+    /**
+     * FR3.1 / FR3.2 — what the parser read.
+     *
+     * NULL IS NOT AN EMPTY PROFILE: null means no parse has completed, while a
+     * profile whose fields are all null means the parse ran and could read
+     * nothing. RC-06 words those two differently.
+     */
+    parsedProfile: ParsedProfileView | null;
   } | null;
+  /**
+   * FR5.4 — the transitions this application has been through, oldest first.
+   * NULL for a CANDIDATE caller, like `score` and `source`.
+   */
+  stageHistory: StageHistoryEntry[] | null;
   score: WireScore | null;
   /** FR7.3 — the channel this application arrived through. */
   source: string | null;

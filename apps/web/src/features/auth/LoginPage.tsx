@@ -1,6 +1,7 @@
 import { useId, useState, type FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
+import { LogoMark } from '../../components/icons';
 import { isApiError } from '../../lib/problem-details';
 
 /**
@@ -95,17 +96,25 @@ export function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-neutral-100 p-6">
-      <div className="w-full max-w-md">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-semibold text-neutral-900">TalentLens</h1>
-          <p className="mt-1 text-sm text-neutral-700">Sign in to the recruiter workspace</p>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-neutral-50 p-6">
+      {/* Same decorative wash as the landing hero, so the two read as one product. */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(50rem_25rem_at_50%_-10%,theme(colors.primary.50),transparent)]"
+      />
+      <div className="relative w-full max-w-md">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <Link to="/" className="rounded-sm" aria-label="TalentLens home">
+            <LogoMark className="h-11 w-11" />
+          </Link>
+          <h1 className="mt-4 text-2xl font-semibold text-neutral-900">TalentLens</h1>
+          <p className="mt-1 text-sm text-neutral-500">Sign in to the recruiter workspace</p>
         </div>
 
         <form
           onSubmit={(event) => void handleSubmit(event)}
           noValidate
-          className="rounded-md border border-neutral-300 bg-neutral-0 p-6 shadow-sm"
+          className="rounded-xl border border-neutral-200 bg-neutral-0 p-6 shadow-lg"
         >
           {/*
             role="alert" so the failure is announced the moment it appears —
@@ -116,7 +125,7 @@ export function LoginPage() {
             <div
               id={formErrorId}
               role="alert"
-              className="mb-4 rounded-sm border border-danger-700 bg-neutral-0 p-3 text-sm text-danger-700"
+              className="mb-4 rounded-md border border-danger-200 bg-danger-50 p-3 text-sm text-danger-700"
             >
               {formError}
             </div>
@@ -136,7 +145,7 @@ export function LoginPage() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="h-10 w-full rounded-sm border border-neutral-300 px-3 text-sm text-neutral-900"
+              className="h-10 w-full rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
             />
           </div>
 
@@ -157,7 +166,7 @@ export function LoginPage() {
               onChange={(event) => setPassword(event.target.value)}
               aria-invalid={fieldError ? true : undefined}
               aria-describedby={fieldError ? passwordErrorId : undefined}
-              className={`h-10 w-full rounded-sm border px-3 text-sm text-neutral-900 ${
+              className={`h-10 w-full rounded-md border px-3 text-sm text-neutral-900 transition-colors ${
                 fieldError ? 'border-danger-700' : 'border-neutral-300'
               }`}
             />
@@ -176,7 +185,7 @@ export function LoginPage() {
             type="submit"
             disabled={submitting}
             aria-disabled={submitting}
-            className="h-10 w-full rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+            className="h-11 w-full rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-colors hover:bg-primary-800 disabled:opacity-40"
           >
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>

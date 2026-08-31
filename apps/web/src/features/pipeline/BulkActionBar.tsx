@@ -3,6 +3,8 @@ import { ErrorState } from '../../components/ErrorState';
 import type { JobCandidateResponse } from '../candidates/useJobCandidates';
 import type { PipelineStage } from './usePipeline';
 import { MAX_BULK_APPLICATIONS, partitionSelectable, useBulkStage } from './useBulkStage';
+import { MAX_TAG_LENGTH, useBulkTag } from './useBulkTag';
+import { useToast } from '../../components/Toast';
 
 /**
  * RC-10 — the bulk action panel (Table 5.1; FR5.2; Flow 7 step 6, US-11).
@@ -40,9 +42,43 @@ export function BulkActionBar({
   onCompleted: (succeededIds: string[]) => void;
 }) {
   const bulk = useBulkStage(jobId);
+  const bulkTag = useBulkTag();
+  const { notify } = useToast();
+  const [tagLabel, setTagLabel] = useState('');
+  const tagId = useId();
   const [target, setTarget] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
   const selectId = useId();
+
+  /**
+   * FR5.2 — tag every selected application.
+   *
+   * The server decides what is taggable; nothing is filtered here. Its response
+   * separates written from already-present, and the confirmation reports both
+   * rather than claiming a count that includes no-ops.
+   */
+  function applyTag() {
+    const label = tagLabel.trim().replace(/\s+/g, ' ');
+    if (!label) return;
+    setLocalError(null);
+
+    bulkTag.mutate(
+      { applicationIds: selected, label },
+      {
+        onSuccess: (outcome) => {
+          setTagLabel('');
+          const parts = [`Tagged ${outcome.tagged.length}`];
+          if (outcome.alreadyTagged.length > 0) {
+            parts.push(`${outcome.alreadyTagged.length} already had it`);
+          }
+          if (outcome.failed.length > 0) {
+            parts.push(`${outcome.failed.length} could not be tagged`);
+          }
+          notify(`${parts.join(' · ')} — “${outcome.label}”.`);
+        },
+      },
+    );
+  }
 
   if (selected.length === 0) return null;
 
@@ -106,7 +142,7 @@ export function BulkActionBar({
 
   return (
     <div
-      className="mb-4 rounded-md border border-neutral-300 bg-neutral-0 p-4"
+      className="mb-4 rounded-lg border border-primary-200 bg-primary-50 p-4 shadow-card"
       /*
        * A live region: the bar appears in response to a selection made
        * elsewhere on the page, so its arrival is announced rather than left for
@@ -131,7 +167,7 @@ export function BulkActionBar({
             value={target}
             onChange={(event) => setTarget(event.target.value)}
             disabled={bulk.isPending}
-            className="h-10 w-48 rounded-sm border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900 disabled:opacity-40"
+            className="h-10 w-48 rounded-md border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900 disabled:opacity-40"
           >
             <option value="">Choose a stage…</option>
             {stages.map((stage) => (
@@ -148,7 +184,7 @@ export function BulkActionBar({
           onClick={() => apply(target)}
           disabled={bulk.isPending || !target}
           aria-disabled={bulk.isPending || !target}
-          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 hover:bg-primary-600 disabled:opacity-40"
+          className="h-10 rounded-md bg-primary-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-colors hover:bg-primary-800 disabled:opacity-40"
         >
           {bulk.isPending ? 'Applying…' : 'Move'}
         </button>
@@ -160,21 +196,56 @@ export function BulkActionBar({
             onClick={() => apply('Rejected')}
             disabled={bulk.isPending}
             aria-disabled={bulk.isPending}
-            className="h-10 rounded-md bg-danger-700 px-4 text-sm font-semibold text-neutral-0 hover:opacity-90 disabled:opacity-40"
+            className="h-10 rounded-md bg-danger-700 px-4 text-sm font-semibold text-neutral-0 shadow-sm transition-opacity hover:opacity-90 disabled:opacity-40"
           >
             Reject
           </button>
         )}
 
+        {/*
+          FR5.2 — bulk tagging, alongside the stage actions rather than on a
+          separate surface: the selection is already made here, and asking a
+          recruiter to re-pick the same candidates elsewhere would be the only
+          alternative.
+        */}
+        <div>
+          <label htmlFor={tagId} className="mb-1 block text-xs font-semibold text-neutral-900">
+            Tag selected
+          </label>
+          <div className="flex gap-2">
+            <input
+              id={tagId}
+              type="text"
+              value={tagLabel}
+              onChange={(event) => setTagLabel(event.target.value)}
+              maxLength={MAX_TAG_LENGTH}
+              placeholder="e.g. Shortlist"
+              disabled={bulkTag.isPending}
+              className="h-10 w-44 rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 disabled:opacity-40"
+            />
+            <button
+              type="button"
+              onClick={applyTag}
+              disabled={bulkTag.isPending || tagLabel.trim().length === 0}
+              aria-disabled={bulkTag.isPending || tagLabel.trim().length === 0}
+              className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100 disabled:opacity-40"
+            >
+              {bulkTag.isPending ? 'Tagging…' : 'Tag'}
+            </button>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={() => {
             bulk.reset();
+            bulkTag.reset();
             setLocalError(null);
+            setTagLabel('');
             onClearSelection();
           }}
           disabled={bulk.isPending}
-          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+          className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100 disabled:opacity-40"
         >
           Clear selection
         </button>
@@ -193,6 +264,12 @@ export function BulkActionBar({
       {bulk.error != null && (
         <div className="mt-3">
           <ErrorState error={bulk.error} title="The bulk action could not be applied" />
+        </div>
+      )}
+
+      {bulkTag.error != null && (
+        <div className="mt-3">
+          <ErrorState error={bulkTag.error} title="The tag could not be applied" />
         </div>
       )}
 

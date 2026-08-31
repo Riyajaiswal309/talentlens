@@ -21,42 +21,37 @@ export function FunnelBars({
   totalApplications: number;
 }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <h2 className="text-base font-semibold text-neutral-900">Funnel</h2>
-      <p className="mt-1 text-sm text-neutral-700">
-        How many applications ever reached each stage, out of {totalApplications}{' '}
-        {totalApplications === 1 ? 'application' : 'applications'}.
-      </p>
-
-      <ol className="mt-4 space-y-3">
-        {stages.map((stage) => (
-          <li key={stage.name}>
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <p className="text-sm font-semibold text-neutral-900">
-                {stage.position}. {stage.name}
-                {stage.isTerminal && (
-                  // Stated, not coloured: a terminal stage is where candidates
-                  // stop moving, which is a fact about the pipeline, not a
-                  // judgement about the outcome.
-                  <span className="ml-2 rounded-sm border border-neutral-300 px-1.5 py-0.5 text-xs font-normal text-neutral-500">
-                    Terminal
-                  </span>
-                )}
-              </p>
-              <p className="text-sm text-neutral-700">
-                <span className="font-mono font-semibold text-neutral-900">{stage.reached}</span>
-                {/* The API's own ratio, never recomputed here. */}
-                <span className="ml-2 text-neutral-500">
-                  {formatRatio(stage.conversionFromStart)} of all
+    <ol className="space-y-4">
+      {stages.map((stage) => (
+        <li key={stage.name}>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
+              <span className="font-mono text-xs text-neutral-400">{stage.position}</span>
+              {stage.name}
+              {stage.isTerminal && (
+                // Stated, not coloured: a terminal stage is where candidates
+                // stop moving, which is a fact about the pipeline, not a
+                // judgement about the outcome.
+                <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-neutral-500">
+                  Terminal
                 </span>
-              </p>
-            </div>
+              )}
+            </p>
+            <p className="text-sm text-neutral-700">
+              <span className="font-mono font-semibold tabular-nums text-neutral-900">
+                {stage.reached}
+              </span>
+              {/* The API's own ratio, never recomputed here. */}
+              <span className="ml-2 text-neutral-500">
+                {formatRatio(stage.conversionFromStart)} of all
+              </span>
+            </p>
+          </div>
 
-            <Bar reached={stage.reached} total={totalApplications} name={stage.name} />
-          </li>
-        ))}
-      </ol>
-    </section>
+          <Bar reached={stage.reached} total={totalApplications} name={stage.name} />
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -67,7 +62,7 @@ function Bar({ reached, total, name }: { reached: number; total: number; name: s
 
   return (
     <div
-      className="mt-1 h-3 w-full overflow-hidden rounded-sm bg-neutral-100"
+      className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-neutral-100"
       /*
        * The bar is a graphic, so it carries the same numbers the text does —
        * a screen reader gets the value rather than an unlabelled box (NFR4).
@@ -78,8 +73,14 @@ function Bar({ reached, total, name }: { reached: number; total: number; name: s
       {/*
         A zero-width div is invisible, which is correct — an empty stage should
         read as empty rather than as a sliver of colour.
+
+        §8.2 — the gradient stays inside the primary ramp. Magnitude never
+        borrows success/danger, so the chart cannot imply a verdict (BR-01).
       */}
-      <div className="h-full rounded-sm bg-primary-700" style={{ width: `${percent}%` }} />
+      <div
+        className="h-full rounded-full bg-gradient-to-r from-primary-600 to-primary-700 transition-[width] duration-500 ease-out"
+        style={{ width: `${percent}%` }}
+      />
     </div>
   );
 }

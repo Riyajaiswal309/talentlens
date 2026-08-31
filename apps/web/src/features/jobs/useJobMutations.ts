@@ -64,6 +64,27 @@ export function useCreateJob() {
   });
 }
 
+/**
+ * FR1.3 — "Recruiters can duplicate an existing posting as a template."
+ *
+ * `POST /v1/jobs/:id/duplicate`. The copy comes back as a DRAFT with its own
+ * id, which is why the caller navigates to it rather than staying put: the
+ * user's next act is always to edit the copy, and leaving them on the original
+ * would make a successful duplicate look like nothing happened.
+ */
+export function useDuplicateJob(jobId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post<JobResponse>(`/jobs/${jobId!}/duplicate`),
+    onSuccess: (job) => {
+      // Same reasoning as `useCreateJob`: seed the new record, invalidate lists.
+      queryClient.setQueryData(['job', job.id], job);
+      void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+}
+
 /** PATCH /v1/jobs/:id — edit, publish or close. Recruiter, Admin. */
 export function useUpdateJob(jobId: string | undefined) {
   const queryClient = useQueryClient();

@@ -102,6 +102,25 @@ export class StorageService {
   }
 
   /**
+   * Read an object as raw bytes (FR3.3).
+   *
+   * REQUIRED FOR RESUMES, because `readText` decodes the object as UTF-8 and
+   * PDF and DOCX are binary containers — a PDF read that way is mojibake and a
+   * DOCX is a zip archive, so neither survives the round trip. Every parser
+   * therefore takes bytes; `readText` remains for genuinely textual objects.
+   */
+  async readBytes(key: string): Promise<Buffer> {
+    const response = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+
+    if (!response.Body) {
+      throw new Error(`Resume object is empty or missing: ${key}`);
+    }
+    return Buffer.from(await response.Body.transformToByteArray());
+  }
+
+  /**
    * Compensating delete.
    *
    * Used when the file was stored but the database transaction that would

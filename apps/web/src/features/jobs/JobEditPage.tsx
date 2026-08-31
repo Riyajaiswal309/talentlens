@@ -32,7 +32,8 @@ export function JobEditPage() {
   }
 
   if (query.isError) {
-    return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
+    // The whole page — no header renders above it, so this carries the h1.
+    return <ErrorState error={query.error} onRetry={() => void query.refetch()} as="h1" />;
   }
 
   const job = query.data;
@@ -45,7 +46,7 @@ export function JobEditPage() {
           <p className="font-mono text-xs text-neutral-500">RC-03</p>
           <h1 className="text-2xl font-semibold text-neutral-900">{job.title}</h1>
         </header>
-        <div className="rounded-md border border-neutral-300 bg-neutral-0 px-6 py-8 text-center">
+        <div className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card px-6 py-8 text-center">
           <h2 className="text-base font-semibold text-neutral-900">This job is closed</h2>
           <p className="mx-auto mt-2 max-w-md text-sm text-neutral-700">
             A closed job cannot be edited or reopened. Create a new job if the role opens again.
@@ -53,7 +54,7 @@ export function JobEditPage() {
           <button
             type="button"
             onClick={() => navigate(`/jobs/${job.id}`)}
-            className="mt-6 h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+            className="mt-6 h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100"
           >
             Back to the job
           </button>
@@ -133,7 +134,7 @@ function StatusSection({ current, jobId }: { current: string; jobId: string }) {
   }
 
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+    <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
       <h2 className="text-base font-semibold text-neutral-900">Status</h2>
       <p className="mt-1 text-sm text-neutral-700">
         Currently <span className="font-semibold">{label(current)}</span>.

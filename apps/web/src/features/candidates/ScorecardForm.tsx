@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { ErrorState } from '../../components/ErrorState';
+import { useToast } from '../../components/Toast';
 import { isApiError } from '../../lib/problem-details';
 import {
   MAX_FEEDBACK_LENGTH,
@@ -24,6 +25,7 @@ import {
  * appears in the list above (the mutation invalidates it).
  */
 export function ScorecardForm({ applicationId }: { applicationId: string | undefined }) {
+  const { notify } = useToast();
   const submit = useAddScorecard(applicationId);
 
   const [rating, setRating] = useState<number | null>(null);
@@ -67,6 +69,7 @@ export function ScorecardForm({ applicationId }: { applicationId: string | undef
       onSuccess: () => {
         setRating(null);
         setFeedback('');
+        notify('Scorecard submitted.');
       },
     });
   }

@@ -39,6 +39,10 @@ export const AUDIT_ACTIONS = [
   // `application.submitted`; this records a later change, which alters a
   // reported business metric (amendment C3).
   'application.source_changed',
+  // FR5.2 — a tag is a recruiter judgement about a candidate, so applying or
+  // removing one is recorded like any other consequential write.
+  'application.tagged',
+  'application.untagged',
   // FR6.1 — calendar connection lifecycle (amendments C4, D43). State carries
   // provider and account_identifier only; never credential material.
   // `calendar.connected` is listed but not yet emitted: it belongs to the

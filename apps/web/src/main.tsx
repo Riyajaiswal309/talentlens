@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { AuthProvider } from './auth/AuthContext';
+import { ToastProvider } from './components/Toast';
 import { isApiError } from './lib/problem-details';
 import './index.css';
 
@@ -35,7 +36,11 @@ ReactDOM.createRoot(rootElement).render(
       <BrowserRouter>
         {/* Inside the router: the guards it provides use router navigation. */}
         <AuthProvider>
-          <App />
+          {/* Outermost of the two so a confirmation survives the navigation
+              that a mutation often triggers. */}
+          <ToastProvider>
+            <App />
+          </ToastProvider>
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>

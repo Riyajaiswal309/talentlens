@@ -11,4 +11,36 @@
     outline: 2px solid theme('colors.primary.700');
     outline-offset: 2px;
   }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-900 antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Headings carry the hierarchy; sizes are set per-use, weight is not. */
+  h1,
+  h2,
+  h3 {
+    @apply font-semibold tracking-[-0.01em] text-neutral-900;
+  }
+
+  /*
+   * NFR4 / WCAG 2.3.3 — honour a user who has asked for less motion. Every
+   * transition and animation in the app is decorative, so removing them costs
+   * nothing and prevents vestibular discomfort.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }

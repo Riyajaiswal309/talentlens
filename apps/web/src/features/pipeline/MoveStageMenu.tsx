@@ -104,7 +104,7 @@ export function MoveStageMenu({
         <div
           role="menu"
           aria-label={`Move ${candidateName} to another stage`}
-          className="mt-1 w-full rounded-md border border-neutral-300 bg-neutral-0 py-1"
+          className="mt-1 w-full rounded-lg border border-neutral-200 bg-neutral-0 shadow-card py-1"
         >
           {stages.map((stage) => {
             const isCurrent = stage.name === currentStage;

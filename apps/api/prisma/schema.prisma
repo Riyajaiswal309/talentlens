@@ -175,6 +175,8 @@ model Users {
   /// A login account may correspond to at most one candidate profile.
   candidateProfile    Candidate?             @relation("CandidateAccount")
   comments            Comment[]
+  /// FR5.2 — tags this user applied to an application.
+  applicationTags     ApplicationTag[]
   /// FR6.1 — interviews this user booked, and those they are sitting on.
   createdInterviews   Interview[]            @relation("InterviewCreatedBy")
   interviewPanels     InterviewInterviewer[]
@@ -369,6 +371,7 @@ model Application {
   stageHistory StageHistory[]
   scorecards   Scorecard[]
   comments     Comment[]
+  tags         ApplicationTag[]
   interviews   Interview[]
 
   /// PRD §17.4 — composite index serving the pipeline board load.
@@ -403,10 +406,36 @@ model ParsedProfile {
   id       String @id @default(uuid()) @db.Uuid
   resumeId String @unique @map("resume_id") @db.Uuid
 
+  /**
+   * FR3.1 — contact information: name, email, phone, location.
+   *
+   * A jsonb object rather than four columns, matching how `skills`,
+   * `work_history`, `education` and `certifications` are already modelled: a
+   * parser emits the whole block or none of it, and every value is optional
+   * because an absent field must stay ABSENT rather than be invented. Keys are
+   * `name` | `email` | `phone` | `location`, each `string | null`.
+   *
+   * Per-field confidence for these lives in `field_confidence` under the same
+   * key path (`contact.email`), so the existing review queue picks them up
+   * without a second mechanism.
+   */
+  contact Json @default("{}")
+
   skills         Json @default("[]")
   workHistory    Json @default("[]") @map("work_history")
   education      Json @default("[]")
   certifications Json @default("[]")
+
+  /**
+   * FR3.2 / FR4.4 — which parser produced this, and which version of it.
+   *
+   * NULLABLE because a row written before parsers were versioned cannot claim
+   * a provenance it does not have. Recorded so a profile can be re-derived, and
+   * so a rule-based extraction is never mistaken for a model's output: the
+   * value is the literal identifier, e.g. `rule-based-local` / `v1`.
+   */
+  parserName    String? @map("parser_name")
+  parserVersion String? @map("parser_version")
 
   /**
    * FR3.2 / Handoff Gap 3 — per-field confidence, keyed by field path
@@ -581,6 +610,40 @@ model Comment {
   /// The thread for one candidate, newest last.
   @@index([applicationId, createdAt])
   @@map("comments")
+}
+
+/// FR5.2 — recruiter tags on an application ("bulk actions are supported
+/// (stage change, rejection, tagging)").
+///
+/// A TABLE, NOT A `String[]` COLUMN ON `applications`, and shaped after
+/// `comments`: a tag is a collaborative artefact, so it records WHO applied it
+/// and WHEN. An array column could store neither, and could not let the
+/// database reject a duplicate.
+///
+/// INTERNAL TO THE HIRING TEAM. Tags are the recruiter's shorthand about a
+/// candidate, never shown to them — §24.2 gives a Candidate no view of the
+/// team's working notes, the same rule that withholds `score`, `source` and
+/// stage history.
+///
+/// Duplicates are prevented by a UNIQUE INDEX ON `(application_id,
+/// lower(label))`, applied as raw SQL in the migration because Prisma's schema
+/// language cannot express a functional index. Case-insensitive so "Python" and
+/// "python" are one tag, not two.
+model ApplicationTag {
+  id            String @id @default(uuid()) @db.Uuid
+  applicationId String @map("application_id") @db.Uuid
+  label         String
+  /// BR-03 — attribution. NOT NULL: a tag is always someone's judgement.
+  createdBy     String @map("created_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  author      Users       @relation(fields: [createdBy], references: [id])
+
+  @@index([applicationId])
+  @@map("application_tags")
 }
 
 // ---------------------------------------------------------------------------

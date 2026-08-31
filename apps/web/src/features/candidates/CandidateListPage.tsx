@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, Skeleton, SkeletonTable } from '../../components/Skeleton';
+import { Avatar, Badge, Card, Notice, buttonClass } from '../../components/ui';
 import { JobHeader } from '../jobs/JobHeader';
 import { useJob } from '../jobs/useJobs';
 import {
@@ -60,18 +61,18 @@ export function CandidateListPage() {
         errored={jobQuery.isError}
       />
 
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold text-neutral-900">
           Candidates
           {rows.length > 0 && (
             // "Loaded", never a total — see the file header.
-            <span className="ml-2 text-sm font-normal text-neutral-500">
+            <span className="ml-2 align-middle text-sm font-normal text-neutral-500">
               {rows.length} loaded
               {candidates.hasNextPage ? '+' : ''}
             </span>
           )}
         </h2>
-        <p className="font-mono text-xs text-neutral-500">RC-05</p>
+        <p className="font-mono text-2xs uppercase tracking-widest text-neutral-400">RC-05</p>
       </div>
 
       {/*
@@ -89,10 +90,12 @@ export function CandidateListPage() {
       ) : (
         // Only a definitive `false` is FR4.5's disabled state.
         aiScoringEnabled === false && (
-          <p className="mb-4 rounded-sm border border-info-700 bg-neutral-0 px-3 py-2 text-sm text-info-700">
-            AI scoring is disabled for this job by your administrator. Candidates are listed newest
-            first, with no score.
-          </p>
+          <div className="mb-4">
+            <Notice tone="info">
+              AI scoring is disabled for this job by your administrator. Candidates are listed
+              newest first, with no score.
+            </Notice>
+          </div>
         )
       )}
 
@@ -102,6 +105,7 @@ export function CandidateListPage() {
         rows={rows}
         jobId={jobId}
         showScore={aiScoringEnabled === true}
+        jobErrored={jobQuery.isError}
       />
     </div>
   );
@@ -112,11 +116,14 @@ function CandidateListBody({
   rows,
   jobId,
   showScore,
+  jobErrored,
 }: {
   query: ReturnType<typeof useJobCandidates>;
   rows: JobCandidateResponse[];
   jobId: string | undefined;
   showScore: boolean;
+  /** True when the JOB 404'd, so `JobHeader` rendered no h1 for this page. */
+  jobErrored: boolean;
 }) {
   if (query.isPending) {
     // §7.2 draws eight skeleton rows while the table loads.
@@ -129,7 +136,13 @@ function CandidateListBody({
 
   if (query.isError) {
     // §7.2: "inline retry panel replacing the table body".
-    return <ErrorState error={query.error} onRetry={() => void query.refetch()} />;
+    return (
+      <ErrorState
+        error={query.error}
+        onRetry={() => void query.refetch()}
+        as={jobErrored ? 'h1' : 'h2'}
+      />
+    );
   }
 
   if (rows.length === 0) {
@@ -146,15 +159,19 @@ function CandidateListBody({
     <>
       <div
         aria-busy={query.isFetchingNextPage}
-        className={query.isFetchingNextPage ? 'opacity-60' : undefined}
+        className={
+          query.isFetchingNextPage ? 'opacity-60 transition-opacity' : 'transition-opacity'
+        }
       >
-        <ul className="divide-y divide-neutral-300 overflow-hidden rounded-md border border-neutral-300 bg-neutral-0">
-          {rows.map((row) => (
-            <li key={row.applicationId}>
-              <CandidateRow row={row} jobId={jobId} showScore={showScore} />
-            </li>
-          ))}
-        </ul>
+        <Card className="overflow-hidden" as="div">
+          <ul className="divide-y divide-neutral-200">
+            {rows.map((row) => (
+              <li key={row.applicationId}>
+                <CandidateRow row={row} jobId={jobId} showScore={showScore} />
+              </li>
+            ))}
+          </ul>
+        </Card>
       </div>
 
       {/* §7.2 — "Load more", not numbered pages. */}
@@ -165,7 +182,7 @@ function CandidateListBody({
             onClick={() => void query.fetchNextPage()}
             disabled={query.isFetchingNextPage}
             aria-disabled={query.isFetchingNextPage}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+            className={buttonClass('secondary')}
           >
             {query.isFetchingNextPage ? 'Loading…' : 'Load more'}
           </button>
@@ -185,16 +202,19 @@ function CandidateRow({
   showScore: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-4 hover:bg-neutral-100">
-      <div className="min-w-0">
-        <Link
-          to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
-          className="rounded-sm text-base font-semibold text-primary-700 hover:underline"
-        >
-          {row.candidate.fullName}
-        </Link>
-        <p className="mt-0.5 text-sm text-neutral-700">{row.candidate.email}</p>
-        <p className="mt-1 text-xs text-neutral-500">Applied {formatDate(row.appliedAt)}</p>
+    <div className="group flex flex-wrap items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-neutral-50">
+      <div className="flex min-w-0 flex-1 items-center gap-3.5">
+        <Avatar name={row.candidate.fullName} />
+        <div className="min-w-0">
+          <Link
+            to={`/jobs/${jobId ?? ''}/candidates/${row.applicationId}`}
+            className="rounded-sm text-sm font-semibold text-neutral-900 transition-colors group-hover:text-primary-700"
+          >
+            {row.candidate.fullName}
+          </Link>
+          <p className="truncate text-sm text-neutral-500">{row.candidate.email}</p>
+          <p className="mt-0.5 text-xs text-neutral-400">Applied {formatDate(row.appliedAt)}</p>
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
@@ -204,9 +224,7 @@ function CandidateRow({
           as a scored list whose values failed to load.
         */}
         {showScore && <ScoreCell score={row.score} />}
-        <span className="rounded-full border border-neutral-300 px-2 py-0.5 text-xs font-semibold text-neutral-700">
-          {formatStage(row.currentStage)}
-        </span>
+        <Badge tone="neutral">{formatStage(row.currentStage)}</Badge>
       </div>
     </div>
   );

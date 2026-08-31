@@ -1,3 +1,5 @@
+import { Badge, Dot, type BadgeTone } from '../../components/ui';
+
 /**
  * Job status and AI-scoring badges (Table 5.1 — RC-02 displays "status" and
  * "AI status").
@@ -7,21 +9,19 @@
  * is not a failure either — a filled role is the successful outcome. So CLOSED
  * is muted rather than red, and only PUBLISHED, which means "live and
  * accepting applications", carries success/700.
+ *
+ * The dot is decorative; the word beside it carries the meaning, so status is
+ * never conveyed by colour alone (WCAG 1.4.1).
  */
 export function JobStatusBadge({ status }: { status: string }) {
-  const tone =
-    status === 'PUBLISHED'
-      ? 'border-success-700 text-success-700'
-      : status === 'DRAFT'
-        ? 'border-neutral-300 text-neutral-700'
-        : 'border-neutral-300 text-neutral-500';
+  const tone: BadgeTone =
+    status === 'PUBLISHED' ? 'success' : status === 'DRAFT' ? 'neutral' : 'neutral';
 
   return (
-    <span
-      className={`inline-flex items-center rounded-sm border px-2 py-0.5 text-xs font-semibold ${tone}`}
-    >
+    <Badge tone={tone} className={status === 'CLOSED' ? 'opacity-70' : undefined}>
+      <Dot />
       {label(status)}
-    </span>
+    </Badge>
   );
 }
 
@@ -34,18 +34,10 @@ export function JobStatusBadge({ status }: { status: string }) {
  * assuming the ranking is simply poor.
  */
 export function AiScoringBadge({ enabled }: { enabled: boolean }) {
-  if (enabled) {
-    return (
-      <span className="inline-flex items-center rounded-sm border border-neutral-300 px-2 py-0.5 text-xs font-semibold text-neutral-700">
-        AI scoring on
-      </span>
-    );
-  }
-
-  return (
-    <span className="inline-flex items-center rounded-sm border border-info-700 px-2 py-0.5 text-xs font-semibold text-info-700">
-      AI scoring off
-    </span>
+  return enabled ? (
+    <Badge tone="neutral">AI scoring on</Badge>
+  ) : (
+    <Badge tone="info">AI scoring off</Badge>
   );
 }
 

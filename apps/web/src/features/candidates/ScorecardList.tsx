@@ -26,7 +26,7 @@ export function ScorecardList({
   };
 }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
+    <section className="rounded-lg border border-neutral-200 bg-neutral-0 shadow-card p-4">
       <h2 className="text-base font-semibold text-neutral-900">Scorecards</h2>
 
       {query.isPending && (
@@ -59,7 +59,7 @@ export function ScorecardList({
           {query.data.map((scorecard) => (
             <li
               key={scorecard.id}
-              className="border-t border-neutral-300 pt-3 first:border-0 first:pt-0"
+              className="border-t border-neutral-200 pt-3 first:border-0 first:pt-0"
             >
               <div className="flex items-baseline justify-between gap-2">
                 <p className="text-sm font-semibold text-neutral-900">

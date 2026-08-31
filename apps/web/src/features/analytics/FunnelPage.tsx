@@ -3,6 +3,8 @@ import { EmptyState } from '../../components/EmptyState';
 import { ErrorState } from '../../components/ErrorState';
 import { LoadingState, Skeleton, SkeletonTable } from '../../components/Skeleton';
 import { useJobs } from '../jobs/useJobs';
+import { CheckIcon, InboxIcon, UsersIcon } from '../../components/icons';
+import { Card, CardHeader, PageHeader, StatCard, buttonClass } from '../../components/ui';
 import { FunnelBars } from './FunnelBars';
 import {
   formatHours,
@@ -63,96 +65,91 @@ export function FunnelPage() {
 
   return (
     <div>
-      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="font-mono text-xs text-neutral-500">RC-12</p>
-          <h1 className="text-2xl font-semibold text-neutral-900">Analytics</h1>
-          <p className="mt-1 text-sm text-neutral-700">
-            Conversion through your hiring pipeline, for your company only.
-          </p>
-        </div>
+      <PageHeader
+        code="RC-12"
+        title="Analytics"
+        description="Conversion through your hiring pipeline, for your company only."
+        actions={
+          /* Declared unavailable rather than faked — see the file header. */
+          <div className="text-right">
+            <button
+              type="button"
+              disabled
+              aria-disabled="true"
+              title="No export endpoint exists yet"
+              className="h-10 cursor-not-allowed rounded-md border border-neutral-200 bg-neutral-0 px-4 text-sm font-semibold text-neutral-300"
+            >
+              Export view
+            </button>
+            <p className="mt-1 text-xs text-neutral-500">Export is not available yet.</p>
+          </div>
+        }
+      />
 
-        {/* Declared unavailable rather than faked — see the file header. */}
-        <div className="text-right">
-          <button
-            type="button"
-            disabled
-            aria-disabled="true"
-            title="No export endpoint exists yet"
-            className="h-10 cursor-not-allowed rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-300"
-          >
-            Export view
-          </button>
-          <p className="mt-1 text-xs text-neutral-500">Export is not available yet.</p>
-        </div>
-      </header>
+      <Card className="mb-5 p-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label htmlFor={fromId} className="mb-1.5 block text-xs font-semibold text-neutral-700">
+              Applied from
+            </label>
+            <input
+              id={fromId}
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              className="h-10 rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
+            />
+          </div>
+          <div>
+            <label htmlFor={toId} className="mb-1.5 block text-xs font-semibold text-neutral-700">
+              Applied to
+            </label>
+            <input
+              id={toId}
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              className="h-10 rounded-md border border-neutral-300 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
+            />
+          </div>
+          <div>
+            <label
+              htmlFor={jobSelectId}
+              className="mb-1.5 block text-xs font-semibold text-neutral-700"
+            >
+              Job
+            </label>
+            <select
+              id={jobSelectId}
+              value={jobId}
+              onChange={(event) => setJobId(event.target.value)}
+              className="h-10 w-56 rounded-md border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900 transition-colors hover:border-neutral-400"
+            >
+              <option value="">All jobs</option>
+              {selectableJobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.title}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="mb-4 flex flex-wrap items-end gap-4 rounded-md border border-neutral-300 bg-neutral-0 p-4">
-        <div>
-          <label htmlFor={fromId} className="mb-1 block text-sm font-semibold text-neutral-900">
-            Applied from
-          </label>
-          <input
-            id={fromId}
-            type="date"
-            value={from}
-            onChange={(event) => setFrom(event.target.value)}
-            className="h-10 rounded-sm border border-neutral-300 px-3 text-sm text-neutral-900"
-          />
-        </div>
-        <div>
-          <label htmlFor={toId} className="mb-1 block text-sm font-semibold text-neutral-900">
-            Applied to
-          </label>
-          <input
-            id={toId}
-            type="date"
-            value={to}
-            onChange={(event) => setTo(event.target.value)}
-            className="h-10 rounded-sm border border-neutral-300 px-3 text-sm text-neutral-900"
-          />
-        </div>
-        <div>
-          <label
-            htmlFor={jobSelectId}
-            className="mb-1 block text-sm font-semibold text-neutral-900"
-          >
-            Job
-          </label>
-          <select
-            id={jobSelectId}
-            value={jobId}
-            onChange={(event) => setJobId(event.target.value)}
-            className="h-10 w-56 rounded-sm border border-neutral-300 bg-neutral-0 px-3 text-sm text-neutral-900"
-          >
-            <option value="">All jobs</option>
-            {selectableJobs.map((job) => (
-              <option key={job.id} value={job.id}>
-                {job.title}
-              </option>
-            ))}
-          </select>
-        </div>
+          {filtersActive && (
+            <button type="button" onClick={clearFilters} className={buttonClass('secondary')}>
+              Clear filters
+            </button>
+          )}
 
-        {filtersActive && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
-          >
-            Clear filters
-          </button>
-        )}
-
-        {omittedJobCount > 0 && (
-          // Said out loud: a job silently missing from a filter is worse than a
-          // job explained. See `isUuidV4`.
-          <p className="w-full text-xs text-neutral-500">
-            {omittedJobCount} older {omittedJobCount === 1 ? 'job is' : 'jobs are'} not filterable —
-            the analytics endpoint only accepts version-4 job identifiers.
-          </p>
-        )}
-      </div>
+          {omittedJobCount > 0 && (
+            // Said out loud: a job silently missing from a filter is worse than a
+            // job explained. See `isUuidV4`.
+            <p className="w-full text-xs text-neutral-500">
+              {omittedJobCount} older {omittedJobCount === 1 ? 'job is' : 'jobs are'} not filterable
+              — the analytics endpoint only accepts version-4 job identifiers.
+            </p>
+          )}
+        </div>
+      </Card>
 
       <FunnelBody query={funnel} filtersActive={filtersActive} onClearFilters={clearFilters} />
     </div>
@@ -207,7 +204,7 @@ function FunnelBody({
           <button
             type="button"
             onClick={onClearFilters}
-            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+            className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100"
           >
             Clear filters
           </button>
@@ -228,7 +225,19 @@ function FunnelBody({
     >
       <StatTiles report={report} />
       <SingleStageNotice report={report} />
-      <FunnelBars stages={report.stages} totalApplications={report.totalApplications} />
+      {/* `FunnelBars` renders the bars only; the framing card belongs to the
+          caller so the dashboard and this page can present it differently. */}
+      <Card>
+        <CardHeader
+          title="Funnel"
+          description={`How many applications ever reached each stage, out of ${
+            report.totalApplications
+          } ${report.totalApplications === 1 ? 'application' : 'applications'}.`}
+        />
+        <div className="p-5">
+          <FunnelBars stages={report.stages} totalApplications={report.totalApplications} />
+        </div>
+      </Card>
       <ConversionTable report={report} />
       <div className="grid gap-4 lg:grid-cols-2">
         <TimeToHirePanel report={report} />
@@ -240,33 +249,29 @@ function FunnelBody({
 
 function StatTiles({ report }: { report: FunnelReport }) {
   return (
-    <dl className="grid gap-4 sm:grid-cols-3">
-      <Tile label="Applications" value={String(report.totalApplications)} />
-      <Tile
+    <div className="grid gap-4 sm:grid-cols-3">
+      <StatCard
+        label="Applications"
+        value={String(report.totalApplications)}
+        icon={<UsersIcon />}
+      />
+      <StatCard
         label="Hired"
         // Null time-to-hire means nobody was hired — reported as 0 because that
         // IS the count, unlike a ratio with no denominator.
         value={String(report.timeToHire?.hiredCount ?? 0)}
+        icon={<CheckIcon />}
       />
-      <Tile
+      <StatCard
         label="Source recorded"
         value={`${report.sourceOfHire.recorded} of ${report.totalApplications}`}
+        icon={<InboxIcon />}
         hint={
           report.sourceOfHire.notRecorded > 0
             ? `${report.sourceOfHire.notRecorded} not recorded`
             : undefined
         }
       />
-    </dl>
-  );
-}
-
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <dt className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{label}</dt>
-      <dd className="mt-1 text-2xl font-semibold text-neutral-900">{value}</dd>
-      {hint && <p className="mt-0.5 text-xs text-neutral-500">{hint}</p>}
     </div>
   );
 }
@@ -292,14 +297,12 @@ function SingleStageNotice({ report }: { report: FunnelReport }) {
 
 function ConversionTable({ report }: { report: FunnelReport }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0">
-      <div className="border-b border-neutral-300 p-4">
-        <h2 className="text-base font-semibold text-neutral-900">Stage conversion</h2>
-        <p className="mt-1 text-sm text-neutral-700">
-          {/* The rule spelled out, because a dash is otherwise ambiguous. */}A dash means the
-          figure could not be measured — not that it is zero.
-        </p>
-      </div>
+    <Card>
+      <CardHeader
+        title="Stage conversion"
+        /* The rule spelled out, because a dash is otherwise ambiguous. */
+        description="A dash means the figure could not be measured — not that it is zero."
+      />
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -307,7 +310,7 @@ function ConversionTable({ report }: { report: FunnelReport }) {
             Conversion and time in stage for each pipeline stage
           </caption>
           <thead>
-            <tr className="border-b border-neutral-300 bg-neutral-100 text-left">
+            <tr className="border-b border-neutral-200 bg-neutral-50 text-left">
               <Th>Stage</Th>
               <Th numeric>Reached</Th>
               <Th numeric>Here now</Th>
@@ -318,11 +321,16 @@ function ConversionTable({ report }: { report: FunnelReport }) {
           </thead>
           <tbody>
             {report.stages.map((stage) => (
-              <tr key={stage.name} className="border-b border-neutral-300 last:border-0">
-                <td className="px-4 py-3 font-semibold text-neutral-900">
+              <tr
+                key={stage.name}
+                className="border-b border-neutral-200 last:border-0 transition-colors hover:bg-neutral-50"
+              >
+                <td className="whitespace-nowrap px-4 py-3 font-semibold text-neutral-900">
                   {stage.position}. {stage.name}
                   {stage.isTerminal && (
-                    <span className="ml-2 text-xs font-normal text-neutral-500">Terminal</span>
+                    <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-2xs font-medium uppercase tracking-wide text-neutral-500">
+                      Terminal
+                    </span>
                   )}
                 </td>
                 <Td>{stage.reached}</Td>
@@ -342,7 +350,7 @@ function ConversionTable({ report }: { report: FunnelReport }) {
           </tbody>
         </table>
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -372,23 +380,34 @@ function Td({ children, muted = false }: { children: React.ReactNode; muted?: bo
 /** FR7.2 — time to hire, with an honest empty reading. */
 function TimeToHirePanel({ report }: { report: FunnelReport }) {
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <h2 className="text-base font-semibold text-neutral-900">Time to hire</h2>
+    <Card className="h-full">
+      <CardHeader title="Time to hire" />
+      <div className="p-5">
+        {report.timeToHire === null ? (
+          <p className="text-sm text-neutral-500">
+            {/* Null means no application in range reached the Hired stage. Saying
+                so beats printing a zero that would read as an instant hire. */}
+            No hires in this range yet, so there is nothing to average.
+          </p>
+        ) : (
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <MiniStat label="Hired" value={String(report.timeToHire.hiredCount)} />
+            <MiniStat label="Average" value={`${report.timeToHire.averageDays} d`} />
+            <MiniStat label="Median" value={`${report.timeToHire.medianDays} d`} />
+          </dl>
+        )}
+      </div>
+    </Card>
+  );
+}
 
-      {report.timeToHire === null ? (
-        <p className="mt-2 text-sm text-neutral-700">
-          {/* Null means no application in range reached the Hired stage. Saying
-              so beats printing a zero that would read as an instant hire. */}
-          No hires in this range yet, so there is nothing to average.
-        </p>
-      ) : (
-        <dl className="mt-3 grid gap-4 sm:grid-cols-3">
-          <Tile label="Hired" value={String(report.timeToHire.hiredCount)} />
-          <Tile label="Average" value={`${report.timeToHire.averageDays} d`} />
-          <Tile label="Median" value={`${report.timeToHire.medianDays} d`} />
-        </dl>
-      )}
-    </section>
+/** A compact figure inside a panel — smaller than the page-level `StatCard`. */
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-neutral-50 p-3">
+      <dt className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{label}</dt>
+      <dd className="mt-1 text-xl font-semibold tabular-nums text-neutral-900">{value}</dd>
+    </div>
   );
 }
 
@@ -397,34 +416,40 @@ function SourceOfHirePanel({ report }: { report: FunnelReport }) {
   const { recorded, notRecorded, bySource } = report.sourceOfHire;
 
   return (
-    <section className="rounded-md border border-neutral-300 bg-neutral-0 p-4">
-      <h2 className="text-base font-semibold text-neutral-900">Source of hire</h2>
-      <p className="mt-1 text-sm text-neutral-700">
-        {recorded} of {report.totalApplications} recorded a source
-        {notRecorded > 0 ? `, ${notRecorded} did not` : ''}.
-      </p>
+    <Card className="h-full">
+      <CardHeader
+        title="Source of hire"
+        description={`${recorded} of ${report.totalApplications} recorded a source${
+          notRecorded > 0 ? `, ${notRecorded} did not` : ''
+        }.`}
+      />
 
-      <table className="mt-3 w-full text-sm">
-        <thead>
-          <tr className="border-b border-neutral-300 text-left">
-            <Th>Channel</Th>
-            <Th numeric>Applications</Th>
-            <Th numeric>Hires</Th>
-            <Th numeric>Hire rate</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {bySource.map((entry) => (
-            <tr key={entry.source} className="border-b border-neutral-300 last:border-0">
-              <td className="px-4 py-2 text-neutral-900">{formatSource(entry.source)}</td>
-              <Td>{entry.applications}</Td>
-              <Td>{entry.hires}</Td>
-              {/* Null here means the channel had no applications at all. */}
-              <Td muted={entry.hireRate === null}>{formatRatio(entry.hireRate)}</Td>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-neutral-200 bg-neutral-50 text-left">
+              <Th>Channel</Th>
+              <Th numeric>Applications</Th>
+              <Th numeric>Hires</Th>
+              <Th numeric>Hire rate</Th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+          </thead>
+          <tbody>
+            {bySource.map((entry) => (
+              <tr
+                key={entry.source}
+                className="border-b border-neutral-200 last:border-0 hover:bg-neutral-50"
+              >
+                <td className="px-4 py-2.5 text-neutral-900">{formatSource(entry.source)}</td>
+                <Td>{entry.applications}</Td>
+                <Td>{entry.hires}</Td>
+                {/* Null here means the channel had no applications at all. */}
+                <Td muted={entry.hireRate === null}>{formatRatio(entry.hireRate)}</Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

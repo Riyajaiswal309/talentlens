@@ -158,7 +158,11 @@ export function PipelineBoard() {
           </div>
         </LoadingState>
       ) : candidates.isError ? (
-        <ErrorState error={candidates.error} onRetry={() => void candidates.refetch()} />
+        <ErrorState
+          error={candidates.error}
+          onRetry={() => void candidates.refetch()}
+          as={job.isError ? 'h1' : 'h2'}
+        />
       ) : (
         <>
           {rows.length === 0 && (
@@ -229,7 +233,7 @@ export function PipelineBoard() {
                 onClick={() => void candidates.fetchNextPage()}
                 disabled={candidates.isFetchingNextPage}
                 aria-disabled={candidates.isFetchingNextPage}
-                className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 hover:bg-neutral-100 disabled:opacity-40"
+                className="h-10 rounded-md border border-neutral-300 bg-neutral-0 px-4 text-sm font-semibold text-neutral-900 transition-colors hover:bg-neutral-100 disabled:opacity-40"
               >
                 {candidates.isFetchingNextPage ? 'Loading…' : 'Load more candidates'}
               </button>

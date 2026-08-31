@@ -55,3 +55,19 @@ process.env.DATABASE_URL = capped(process.env.DATABASE_URL ?? DEFAULT_OWNER_URL)
 if (process.env.APP_DATABASE_URL) {
   process.env.APP_DATABASE_URL = capped(process.env.APP_DATABASE_URL);
 }
+
+/*
+ * THE RESUME WORKER MUST NOT RUN DURING TESTS.
+ *
+ * `.env` now sets `RESUME_WORKER_ENABLED=true` so a local demo parses uploads
+ * (FR3). `ConfigModule` loads that same file in tests, which started a real
+ * BullMQ worker alongside the suite — it then drained the specs' own fixtures
+ * and marked them FAILED, breaking assertions that legitimately expect
+ * `parse_status = PENDING`.
+ *
+ * Forced off here, for the same reason the pool is capped above: a test run
+ * must not depend on what a developer happens to have in `.env`. Specs that
+ * exercise the worker construct it directly and call `handle()` themselves,
+ * which is unaffected by this switch.
+ */
+process.env.RESUME_WORKER_ENABLED = 'false';

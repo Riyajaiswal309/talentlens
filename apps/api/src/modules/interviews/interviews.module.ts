@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CalendarModule } from '../calendar/calendar.module';
 import { AvailabilityController } from './availability.controller';
+import { InterviewersController } from './interviewers.controller';
 import { InterviewsController } from './interviews.controller';
 import { InterviewsService } from './interviews.service';
 import { SchedulingController } from './scheduling.controller';
@@ -25,7 +26,12 @@ import { SchedulingTokenService } from './scheduling-token.service';
  */
 @Module({
   imports: [CalendarModule],
-  controllers: [InterviewsController, SchedulingController, AvailabilityController],
+  controllers: [
+    InterviewsController,
+    SchedulingController,
+    AvailabilityController,
+    InterviewersController,
+  ],
   providers: [InterviewsService, SchedulingService, SchedulingTokenService],
   exports: [InterviewsService],
 })
