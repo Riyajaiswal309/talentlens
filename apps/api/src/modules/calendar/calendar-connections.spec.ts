@@ -243,6 +243,77 @@ describe('Calendar connections (FR6.1 Phase 1)', () => {
     });
   });
 
+  /*
+   * FR6.1 — the honest "is this deployment even wired up?" read.
+   *
+   * This spec uses the REAL adapters, so `configured` here reflects whatever
+   * credentials the environment actually holds. With none present — the state
+   * this build ships in — both providers report false, which is precisely what
+   * the Calendar Connections screen renders as "not configured on this server".
+   */
+  describe('provider configuration status', () => {
+    /** Resolves the token first so the supertest chain stays chainable. */
+    const askProviders = (userId: string, status: number) =>
+      tokenFor(userId).then((token) =>
+        request(app.getHttpServer())
+          .get('/calendar/connections/providers')
+          .set(auth(token))
+          .expect(status),
+      );
+
+    it('lists every known provider with a configured flag', async () => {
+      const response = await askProviders(recruiterA, 200);
+      const byProvider = Object.fromEntries(
+        response.body.data.map((p: { provider: string; configured: boolean }) => [
+          p.provider,
+          p.configured,
+        ]),
+      );
+
+      expect(Object.keys(byProvider).sort()).toEqual(['google', 'microsoft']);
+      expect(typeof byProvider.google).toBe('boolean');
+      expect(typeof byProvider.microsoft).toBe('boolean');
+    });
+
+    it('exposes ONLY provider and configured — never a client id or secret', async () => {
+      const response = await askProviders(recruiterA, 200);
+
+      for (const entry of response.body.data) {
+        expect(Object.keys(entry).sort()).toEqual(['configured', 'provider']);
+      }
+      // Belt and braces: no credential-shaped value anywhere in the payload.
+      const serialised = JSON.stringify(response.body);
+      expect(serialised).not.toMatch(/secret|client_id|clientId|redirect/i);
+    });
+
+    it('agrees with authorize: an unconfigured provider answers 503 there', async () => {
+      const response = await askProviders(recruiterA, 200);
+      const google = response.body.data.find((p: { provider: string }) => p.provider === 'google');
+
+      const authorize = await request(app.getHttpServer())
+        .post('/calendar/connections/google/authorize')
+        .set(auth(await tokenFor(recruiterA)));
+
+      // The two reads must never disagree — that inconsistency is exactly what
+      // would put a dead Connect button in front of a user.
+      expect(authorize.status).toBe(google.configured ? 200 : 503);
+    });
+
+    it('is readable by Recruiter, Hiring Manager and Admin', async () => {
+      await askProviders(recruiterA, 200);
+      await askProviders(hmA, 200);
+      await askProviders(adminA, 200);
+    });
+
+    it('refuses a Candidate (D44)', async () => {
+      await askProviders(candidateA, 403);
+    });
+
+    it('refuses an unauthenticated caller', async () => {
+      await request(app.getHttpServer()).get('/calendar/connections/providers').expect(401);
+    });
+  });
+
   describe('reading own connections', () => {
     it('returns safe metadata only — never a credential (D36, D45)', async () => {
       await connect(recruiterA);

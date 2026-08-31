@@ -9,6 +9,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { ApiOperation } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
@@ -94,6 +95,38 @@ export class InterviewsController {
       ...toResponse(interview),
       ...(schedulingToken ? { schedulingToken, expiresAt: expiresAt?.toISOString() } : {}),
     };
+  }
+
+  /**
+   * POST /v1/interviews/:id/cancel — FR6, withdraw a scheduled interview.
+   *
+   * RECRUITER AND ADMIN, matching `POST /v1/interviews`. Amendment D26 gives a
+   * Hiring Manager the read but not the write: they may see an interview on an
+   * assigned job and must not be able to call one off.
+   *
+   * NOT AUDITED, consistent with every other interview route. Handoff §I Table
+   * I.1 fixes the audit vocabulary and names no interview event, and amendment
+   * D19 records the decision to emit none rather than invent one — Gap 4 rule 2
+   * returns 400 for an action outside the list, so extending it unilaterally
+   * would undermine the audit browser. If interviews should be audited, Table
+   * I.1 is where that is decided.
+   */
+  @Post('interviews/:id/cancel')
+  @Roles(UserRole.RECRUITER, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Cancel an interview (FR6)',
+    description:
+      'Sets status to CANCELLED, which also stops any outstanding scheduling link: both ' +
+      'scheduling routes refuse anything that is not PENDING_SELECTION. Any calendar event ' +
+      'already created is NOT removed — the provider abstraction has no delete — so the ' +
+      'invitation must be withdrawn by hand.',
+  })
+  async cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<InterviewResponse> {
+    return toResponse(await this.interviews.cancel(user, id));
   }
 
   /**

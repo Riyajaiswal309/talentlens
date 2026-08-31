@@ -6,6 +6,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import type { AuthenticatedUser, RequestContext } from '../../common/types/authenticated-request';
 import { CalendarConnectionsService, toAuditState } from './calendar-connections.service';
+import { CalendarProviderRegistry } from './calendar-provider.registry';
 
 /**
  * Safe metadata only (D36, D45).
@@ -58,7 +59,10 @@ function toResponse(connection: CalendarConnection): CalendarConnectionResponse 
  */
 @Controller('calendar/connections')
 export class CalendarConnectionsController {
-  constructor(private readonly connections: CalendarConnectionsService) {}
+  constructor(
+    private readonly connections: CalendarConnectionsService,
+    private readonly registry: CalendarProviderRegistry,
+  ) {}
 
   /**
    * GET /v1/calendar/connections — the caller's own connections.
@@ -75,6 +79,39 @@ export class CalendarConnectionsController {
   ): Promise<{ data: CalendarConnectionResponse[] }> {
     const connections = await this.connections.listOwn(user);
     return { data: connections.map(toResponse) };
+  }
+
+  /**
+   * GET /v1/calendar/connections/providers — which providers this deployment
+   * can actually start a consent flow for.
+   *
+   * WHY THIS EXISTS. A client cannot otherwise learn that a provider is
+   * unconfigured without calling `authorize`, and `authorize` MINTS SINGLE-USE
+   * CSRF STATE — probing it on every page load would spend state tokens as a
+   * side effect of rendering. This is the read that question deserves.
+   *
+   * IT REPORTS A BOOLEAN AND NOTHING ELSE. Whether a client id is present is
+   * already observable from `authorize`'s 503; the client id, secret, redirect
+   * URI and every other credential detail stay server-side. Nothing here
+   * depends on the caller, so no tenant scoping applies.
+   */
+  @Get('providers')
+  @Roles(UserRole.RECRUITER, UserRole.HIRING_MANAGER, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Which calendar providers this deployment holds credentials for (FR6.1)',
+    description:
+      'A provider that is not configured cannot begin an OAuth flow; the UI states that ' +
+      'rather than offering a Connect button that would answer 503.',
+  })
+  listProviders(): { data: { provider: string; configured: boolean }[] } {
+    const configured = new Set<string>(this.registry.configured());
+
+    return {
+      data: Object.values(CalendarProvider).map((provider) => ({
+        provider,
+        configured: configured.has(provider),
+      })),
+    };
   }
 
   /**

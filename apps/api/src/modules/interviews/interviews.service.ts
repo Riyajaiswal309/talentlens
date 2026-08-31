@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InterviewStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
@@ -270,6 +275,66 @@ export class InterviewsService {
       where: { applicationId },
       include: INTERVIEW_VIEW,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  /**
+   * POST /v1/interviews/:id/cancel — withdraw an interview.
+   *
+   * TENANCY IS REACHED THROUGH THE JOB, as everywhere else that touches an
+   * application: `interviews` carries no company_id, so the lookup filters on
+   * `application.job.companyId`. A `JobScoped` guard cannot help — this route
+   * carries an interview id, not a job id — so the scope lives in the query.
+   * A foreign or absent id is 404, never 403 (BR-06).
+   *
+   * CANCELLING AN ALREADY-CANCELLED INTERVIEW IS A 409, not a silent success.
+   * The caller believes they are withdrawing something live; telling them it
+   * was already withdrawn is more useful than a no-op that reads as an action.
+   *
+   * THE STATUS CHANGE IS THE WHOLE MECHANISM THAT KILLS THE LINK. Both
+   * scheduling routes refuse anything that is not `PENDING_SELECTION` with a
+   * 410, so a cancelled interview's outstanding link stops working the moment
+   * this commits — there is no second revocation step to forget.
+   *
+   * THE EXTERNAL CALENDAR EVENT IS NOT DELETED, and this is stated rather than
+   * hidden. `CalendarProvider` exposes `createEvent` and `getAvailability` and
+   * nothing that removes an event; inventing a delete path here would mean
+   * writing provider code that cannot be exercised without live credentials.
+   * `calendar_event_id` is therefore left intact — it is a true record of what
+   * was created — and the caller is told the invitation must be withdrawn by
+   * hand. Clearing the column would be worse: it would erase the only evidence
+   * that an event exists out there.
+   */
+  async cancel(user: AuthenticatedUser, interviewId: string): Promise<InterviewView> {
+    const interview = await this.prisma.interview.findFirst({
+      where: { id: interviewId, application: { job: { companyId: user.companyId } } },
+      include: INTERVIEW_VIEW,
+    });
+
+    if (!interview) throw new NotFoundException();
+
+    if (interview.status === InterviewStatus.CANCELLED) {
+      throw new ConflictException('This interview has already been cancelled');
+    }
+
+    /*
+     * Guarded by status in the WHERE clause, so two concurrent cancellations
+     * cannot both believe they won. The loser matches zero rows and is told the
+     * interview was already cancelled — the same answer it would have received
+     * a moment later.
+     */
+    const claimed = await this.prisma.interview.updateMany({
+      where: { id: interview.id, status: { not: InterviewStatus.CANCELLED } },
+      data: { status: InterviewStatus.CANCELLED },
+    });
+
+    if (claimed.count === 0) {
+      throw new ConflictException('This interview has already been cancelled');
+    }
+
+    return this.prisma.interview.findFirstOrThrow({
+      where: { id: interview.id },
+      include: INTERVIEW_VIEW,
     });
   }
 }

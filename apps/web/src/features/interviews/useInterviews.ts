@@ -154,6 +154,36 @@ export function useCreateInterview(applicationId: string | undefined) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Cancellation (FR6)                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /v1/interviews/:id/cancel` — Recruiter and Admin only.
+ *
+ * CANCELLING ALSO KILLS THE LINK. The server sets `CANCELLED`, and both
+ * scheduling routes refuse anything that is not `PENDING_SELECTION`, so an
+ * outstanding self-service link stops working at the same moment. There is no
+ * second call to make.
+ *
+ * WHAT IT DOES NOT DO: remove an event already created in someone's external
+ * calendar. The provider abstraction has no delete, so `calendarEventId` is
+ * left intact as a true record of what exists out there, and the UI says the
+ * invitation must be withdrawn by hand.
+ */
+export function useCancelInterview(applicationId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (interviewId: string) =>
+      api.post<InterviewResponse>(`/interviews/${interviewId}/cancel`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['application-interviews', applicationId],
+      });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* Time helpers                                                                */
 /* -------------------------------------------------------------------------- */
 

@@ -61,6 +61,19 @@ export const RECRUITER_NAVIGATION: readonly NavigationItem[] = [
     matchPrefix: '/analytics',
     icon: ChartIcon,
   },
+  /*
+   * FR6.1 — a personal setting rather than a workspace section, but it needs to
+   * be reachable: an interviewer whose calendar is unconnected shows up as
+   * "no calendar data" on the availability grid with no way to fix it from
+   * there. Listed for every role that may hold a connection (D44).
+   */
+  {
+    code: 'FR6.1',
+    label: 'Calendar',
+    to: '/settings/calendar',
+    matchPrefix: '/settings/calendar',
+    icon: CalendarIcon,
+  },
 ];
 
 /**
@@ -86,6 +99,14 @@ export const HM_NAVIGATION: readonly NavigationItem[] = [
     icon: InboxIcon,
   },
   { code: 'HM-02', label: 'Jobs', to: '/jobs', matchPrefix: '/jobs', icon: BriefcaseIcon },
+  // A Hiring Manager is an interviewer, so their calendar matters here too.
+  {
+    code: 'FR6.1',
+    label: 'Calendar',
+    to: '/settings/calendar',
+    matchPrefix: '/settings/calendar',
+    icon: CalendarIcon,
+  },
 ];
 
 /**

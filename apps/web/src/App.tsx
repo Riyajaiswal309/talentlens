@@ -22,6 +22,8 @@ import { AdminUsersPage } from './features/admin/AdminUsersPage';
 import { AuditLogPage } from './features/admin/AuditLogPage';
 import { MyReviewsPage } from './features/reviews/MyReviewsPage';
 import { RoleLanding } from './auth/RoleLanding';
+import { CalendarConnectionsPage } from './features/calendar/CalendarConnectionsPage';
+import { CalendarCallbackPage } from './features/calendar/CalendarCallbackPage';
 
 /**
  * Route table.
@@ -112,6 +114,18 @@ export function App() {
         <Route element={<RequireRole allow={HIRING_TEAM_ROLES} />}>
           <Route element={<RecruiterLayout />}>
             <Route path="/my-reviews" element={<MyReviewsPage />} />
+
+            {/*
+              FR6.1 — a user's own calendar. In the hiring-team group because
+              `@Roles` on every calendar route is RECRUITER, HIRING_MANAGER and
+              ADMIN (D44): an interviewer connects their own calendar whichever
+              of those they are. The callback sits alongside it rather than
+              outside the guards — the provider redirects into a session the
+              user already holds, which is what lets `/complete` stay
+              authenticated.
+            */}
+            <Route path="/settings/calendar" element={<CalendarConnectionsPage />} />
+            <Route path="/settings/calendar/callback" element={<CalendarCallbackPage />} />
             <Route path="/jobs" element={<JobListPage />} />
             <Route path="/jobs/:jobId/candidates" element={<CandidateListPage />} />
             {/*

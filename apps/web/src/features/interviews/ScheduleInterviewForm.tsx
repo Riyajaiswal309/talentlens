@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Notice, buttonClass } from '../../components/ui';
 import { ErrorState } from '../../components/ErrorState';
 import {
@@ -535,6 +536,13 @@ function AvailabilityBlock({
               <p className="mt-1">
                 This is not an error. Offer times or book directly and confirm with them yourself —
                 availability is never guessed.
+              </p>
+              {/* The one actionable thing a recruiter can do about their OWN
+                  calendar, from the screen where the gap becomes visible. */}
+              <p className="mt-1">
+                <Link to="/settings/calendar" className="font-medium underline underline-offset-2">
+                  Manage your own calendar connection
+                </Link>
               </p>
             </Notice>
           )}
