@@ -104,8 +104,17 @@ function normalise(raw: string): string {
   return (
     raw
       .replace(/\r\n?/g, '\n')
-      // Non-breaking and zero-width characters break the pattern rules below.
-      .replace(/[ ​‌‍﻿]/g, ' ')
+      /*
+       * Non-breaking and zero-width characters break the pattern rules below.
+       *
+       * ESCAPES AND ALTERNATION, NOT LITERALS IN A CLASS. Written literally,
+       * these are invisible in the source and unreviewable. Written as a
+       * character class, ZWNJ and ZWJ are joiners: inside `[...]` they can bind
+       * to their neighbours so the class no longer matches what it appears to
+       * say. Alternation matches each codepoint on its own, which is what is
+       * meant here — every one of these is replaced by a single space.
+       */
+      .replace(/\u00A0|\u200B|\u200C|\u200D|\uFEFF/g, ' ')
       .split('\n')
       .map((line) => line.replace(/[ \t]+/g, ' ').trim())
       .join('\n')

@@ -7,7 +7,7 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AiModule } from './ai.module';
 import { AiScoringPort } from './ai-scoring.port';
-import { AiServiceClient, type ParseResult } from './ai-service.client';
+import { type ParseResult } from './ai-service.client';
 import { ResumeParserPort, type ResumeParseResult } from './parsing/resume-parser.port';
 import { MatchScorerPort } from './scoring/match-scorer.port';
 import { DEFAULT_RANKING_WEIGHTS } from './dto/ranking-weights.dto';
@@ -103,7 +103,6 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
   let applications: ApplicationsService;
   let tokens: TokenService;
   let worker: ResumeParseWorker;
-  let ai: AiServiceClient;
   /*
    * FR3/FR4 moved extraction and scoring behind ports; the worker no longer
    * talks to `AiServiceClient`. These are the collaborators it actually uses,
@@ -207,7 +206,6 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
     applications = moduleRef.get(ApplicationsService);
     tokens = moduleRef.get(TokenService);
     worker = moduleRef.get(ResumeParseWorker);
-    ai = moduleRef.get(AiServiceClient);
     parser = moduleRef.get(ResumeParserPort);
     scorer = moduleRef.get(MatchScorerPort);
     storage = moduleRef.get(StorageService);
