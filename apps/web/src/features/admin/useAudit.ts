@@ -26,6 +26,8 @@ export const AUDIT_ACTIONS = [
   'job.published',
   'job.closed',
   'job.duplicated',
+  'job.assignment_added',
+  'job.assignment_removed',
   'application.submitted',
   'application.stage_changed',
   'application.hired',

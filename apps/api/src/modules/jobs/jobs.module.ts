@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { JobAssignmentsController } from './job-assignments.controller';
+import { JobAssignmentsService } from './job-assignments.service';
 import { JobsController } from './jobs.controller';
 import { JobsService } from './jobs.service';
 import { PublicJobsController } from './public-jobs.controller';
@@ -12,8 +14,8 @@ import { PublicJobsController } from './public-jobs.controller';
  * answered per-method instead of per-file.
  */
 @Module({
-  controllers: [JobsController, PublicJobsController],
-  providers: [JobsService],
+  controllers: [JobsController, PublicJobsController, JobAssignmentsController],
+  providers: [JobsService, JobAssignmentsService],
   exports: [JobsService],
 })
 export class JobsModule {}

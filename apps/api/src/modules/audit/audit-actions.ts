@@ -26,6 +26,15 @@ export const AUDIT_ACTIONS = [
   'job.published',
   'job.closed',
   'job.duplicated',
+  /*
+   * FR1 / §24.2 — who may reach a requisition (amendment A1, decision B1).
+   * Recorded because an assignment is an ACCESS-CONTROL change, not a field
+   * edit: it decides which Hiring Managers and Administrators can read a
+   * job's candidates, scorecards, comments and interviews. `resource_id` is
+   * the job; the affected colleague travels in the state payload.
+   */
+  'job.assignment_added',
+  'job.assignment_removed',
   'application.submitted',
   'application.stage_changed',
   'application.hired',
