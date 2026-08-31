@@ -18,6 +18,9 @@ import type { RequestContext } from '../types/authenticated-request';
  * Refusals are 404, consistent with BR-06: a 403 would confirm that a job id
  * exists in some other tenant.
  */
+/** Canonical RFC 4122 spelling — the only form this system mints. */
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Injectable()
 export class JobAssignmentGuard implements CanActivate {
   constructor(
@@ -40,8 +43,26 @@ export class JobAssignmentGuard implements CanActivate {
     // published jobs and are handled by their own service logic.
     if (!user) return true;
 
+    /*
+     * A MALFORMED ID IS A 404, NOT A CRASH.
+     *
+     * This guard runs BEFORE `ParseUUIDPipe` — guards precede pipes in Nest —
+     * so a segment like `/v1/jobs/not-a-uuid` used to reach Postgres as a `uuid`
+     * comparison and come back as a 500. Every `@JobScoped()` route inherited
+     * that: it is a property of the guard, not of any one controller.
+     *
+     * The shape is checked here rather than left to the pipe because the pipe
+     * never gets a chance to run. 404 rather than 400 keeps BR-06 intact: a
+     * malformed id, an id that does not exist, and another tenant's id are all
+     * indistinguishable, so nothing about the id space can be probed.
+     *
+     * Canonical 8-4-4-4-12 only. Postgres would also accept exotic spellings
+     * (unhyphenated, brace-wrapped), but every id this system mints is
+     * canonical and `ParseUUIDPipe` would refuse the rest at the handler
+     * anyway — so treating them as "not found" is the safe direction.
+     */
     const jobId = readParam(request, metadata.param ?? 'id');
-    if (!jobId) throw new NotFoundException();
+    if (!jobId || !CANONICAL_UUID.test(jobId)) throw new NotFoundException();
 
     const job = await this.prisma.job.findUnique({
       where: { id: jobId },

@@ -60,6 +60,8 @@ describe('Job assignments (FR1, §24.2, B12)', () => {
   let recruiterB = '';
   let hmB = '';
   let jobB = '';
+  /** Resolved in beforeAll so `it.each` tables can be built without awaiting. */
+  let recruiterToken = '';
 
   async function tokenFor(userId: string): Promise<string> {
     const user = await prisma.users.findUniqueOrThrow({ where: { id: userId } });
@@ -156,6 +158,8 @@ describe('Job assignments (FR1, §24.2, B12)', () => {
     jobA = await mkJob(companyA, recruiterA, JobStatus.PUBLISHED, 'open');
     closedJobA = await mkJob(companyA, recruiterA, JobStatus.CLOSED, 'closed');
     jobB = await mkJob(companyB, recruiterB, JobStatus.PUBLISHED, 'foreign');
+
+    recruiterToken = await tokenFor(recruiterA);
   });
 
   afterAll(async () => {
@@ -274,13 +278,31 @@ describe('Job assignments (FR1, §24.2, B12)', () => {
     });
 
     /*
-     * A MALFORMED JOB ID IS NOT ASSERTED HERE. It answers 500, not 400 — but
-     * that is pre-existing behaviour of the shared `JobAssignmentGuard`, which
-     * runs before `ParseUUIDPipe` and hands the raw segment to a `@db.Uuid`
-     * column. `GET /v1/jobs/not-a-uuid` does the same on the untouched routes,
-     * so it belongs to the guard, not to these routes. Asserting 500 here would
-     * enshrine the defect; it is reported instead.
+     * A MALFORMED JOB ID IS A 404, ACROSS EVERY `@JobScoped()` ROUTE.
+     *
+     * It used to be a 500: `JobAssignmentGuard` runs before `ParseUUIDPipe`, so
+     * the raw segment reached Postgres as a `uuid` comparison. The shape is now
+     * checked in the guard. `GET /jobs/:id` is asserted alongside the new
+     * routes because the defect belonged to the guard, not to these three — a
+     * fix that only covered the new routes would have missed the point.
      */
+    it.each([
+      ['POST assignments', () => assign(recruiterToken, 'not-a-uuid', { userId: hmA })],
+      ['GET assignments', () => listAssignments(recruiterToken, 'not-a-uuid')],
+      ['DELETE assignment', () => unassign(recruiterToken, 'not-a-uuid', hmA)],
+      [
+        'GET /jobs/:id (pre-existing route)',
+        () => request(app.getHttpServer()).get('/jobs/not-a-uuid').set(auth(recruiterToken)),
+      ],
+    ])('%s answers 404 for a malformed job id, never 500', async (_label, call) => {
+      await call().expect(404);
+    });
+
+    it('a well-formed but unknown job id is still 404', async () => {
+      await assign(recruiterToken, '11111111-1111-4111-8111-111111111111', {
+        userId: hmA,
+      }).expect(404);
+    });
   });
 
   describe('duplicates and removal', () => {

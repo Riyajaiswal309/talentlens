@@ -362,6 +362,99 @@ describe('Authorization (PRD §24.2, BR-06, decision B1)', () => {
   // =========================================================================
   // Candidate ownership (BR-06) — the approved candidate-identity resolution
   // =========================================================================
+  /*
+   * REGRESSION — a malformed job id used to be a 500.
+   *
+   * The guard runs before `ParseUUIDPipe`, so the raw segment reached Postgres
+   * as a `uuid` comparison and the driver threw. Every `@JobScoped()` route
+   * inherited it. The shape is now checked in the guard, and the refusal is
+   * 404 so that a malformed id stays indistinguishable from an absent one and
+   * from another tenant's (BR-06).
+   */
+  describe('JobAssignmentGuard — malformed job ids (regression)', () => {
+    function scopeJobRoute() {
+      jest
+        .spyOn(reflector, 'getAllAndOverride')
+        .mockImplementation((key: unknown) => (key === JOB_SCOPED_KEY ? {} : undefined));
+    }
+
+    const MALFORMED = [
+      'not-a-uuid',
+      '123',
+      '',
+      'undefined',
+      'null',
+      // Right length, wrong alphabet — would still be a uuid cast error.
+      'zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz',
+      // Postgres would accept these spellings; this system never mints them.
+      '11111111111111111111111111111111',
+      '{11111111-1111-4111-8111-111111111111}',
+      // SQL-ish payload: proves the guard refuses before anything is queried.
+      "' OR 1=1 --",
+    ];
+
+    it.each(MALFORMED)('refuses %p with NotFound rather than throwing', async (jobId) => {
+      scopeJobRoute();
+      const ctx = makeContext(
+        principal({ id: ids.recruiterA, role: UserRole.RECRUITER, companyId: ids.companyA }),
+        { id: jobId },
+      );
+      await expect(jobGuard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+    });
+
+    it('refuses a malformed id for every role, not just the narrowed one', async () => {
+      scopeJobRoute();
+      const roles = [
+        { id: ids.recruiterA, role: UserRole.RECRUITER },
+        { id: ids.adminA, role: UserRole.ADMIN },
+        { id: ids.hmAssignedA, role: UserRole.HIRING_MANAGER },
+      ];
+
+      for (const who of roles) {
+        const ctx = makeContext(principal({ ...who, companyId: ids.companyA }), {
+          id: 'not-a-uuid',
+        });
+        await expect(jobGuard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+      }
+    });
+
+    it('still accepts a canonical id in upper case', async () => {
+      scopeJobRoute();
+      const ctx = makeContext(
+        principal({ id: ids.recruiterA, role: UserRole.RECRUITER, companyId: ids.companyA }),
+        { id: ids.jobA.toUpperCase() },
+      );
+      await expect(jobGuard.canActivate(ctx)).resolves.toBe(true);
+    });
+
+    it('a well-formed but unknown id is still 404 — unchanged', async () => {
+      scopeJobRoute();
+      const ctx = makeContext(
+        principal({ id: ids.recruiterA, role: UserRole.RECRUITER, companyId: ids.companyA }),
+        { id: '11111111-1111-4111-8111-111111111111' },
+      );
+      await expect(jobGuard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+    });
+
+    it('a cross-tenant id is still 404 — unchanged', async () => {
+      scopeJobRoute();
+      const ctx = makeContext(
+        principal({ id: ids.recruiterA, role: UserRole.RECRUITER, companyId: ids.companyA }),
+        { id: ids.jobB },
+      );
+      await expect(jobGuard.canActivate(ctx)).rejects.toThrow(NotFoundException);
+    });
+
+    it('a valid job in the caller’s own tenant still passes — unchanged', async () => {
+      scopeJobRoute();
+      const ctx = makeContext(
+        principal({ id: ids.recruiterA, role: UserRole.RECRUITER, companyId: ids.companyA }),
+        { id: ids.jobA },
+      );
+      await expect(jobGuard.canActivate(ctx)).resolves.toBe(true);
+    });
+  });
+
   describe('CandidateOwnershipGuard — BR-06', () => {
     function ownApplication(metadata: CandidateOwnedMetadata = { resource: 'application' }) {
       jest
