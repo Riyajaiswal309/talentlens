@@ -5,6 +5,7 @@ import { useToast } from '../../components/Toast';
 import { Card, CardHeader, Chip, Field, buttonClass } from '../../components/ui';
 import { isUuidV4, useFunnel } from '../analytics/useFunnel';
 import { JobHeader } from './JobHeader';
+import { JobAssignmentsPanel } from './JobAssignmentsPanel';
 import { toSkills, useJob, type JobResponse, type JobStatus } from './useJobs';
 import { ALLOWED_STATUS_TRANSITIONS, useDuplicateJob, useUpdateJob } from './useJobMutations';
 import { useAuth } from '../../auth/AuthContext';
@@ -46,6 +47,12 @@ export function JobDetailPage() {
       />
       {query.data && <JobStats job={query.data} />}
       {query.data && <JobActions job={query.data} />}
+      {/*
+        §24.2 / B12 — who may review this requisition. Placed above the record
+        because it is an access decision a recruiter acts on, not a field of
+        the job they read.
+      */}
+      {query.data && <JobAssignmentsPanel jobId={query.data.id} />}
       {query.data && <JobRecord job={query.data} />}
     </div>
   );
