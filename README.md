@@ -92,6 +92,7 @@ TalentLens splits the work along that line.
 | Resume parsing          | Real PDF/DOCX text extraction, contact and skill extraction, per-field confidence, parser name and version recorded                                 |
 | Match scoring           | `baseline-rules-v1` — deterministic, explainable, self-disclosing its own ceiling (see below)                                                       |
 | Skill match analysis    | Matched vs not-detected required skills, coverage, and suggested interview focus — same rule as the score                                           |
+| Candidate comparison    | Compare up to 4 candidates on score, skill coverage, matched/not-detected skills and stage                                                          |
 | Candidate management    | Per-job candidate list, application detail, comment thread                                                                                          |
 | Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                                                                       |
 | Stage history           | Every transition recorded with actor and timestamp, shown as a timeline                                                                             |
@@ -421,6 +422,7 @@ for Recruiter and Admin, `/my-reviews` for a Hiring Manager.
 | RC-10 | Bulk actions         | (within RC-09)                   | Multi-select bulk stage change **and bulk tagging**, capped at 100    |
 | RC-11 | Interview scheduling | (within RC-06)                   | Slots or direct booking, availability, scheduling link with copy      |
 | RC-12 | Analytics funnel     | `/analytics`                     | CSS bars; `null` conversion and time values render as `—`, never `0%` |
+| —     | Compare candidates   | `/jobs/:jobId/compare`           | Side-by-side match signals; no ranking verdict is offered (BR-01)     |
 
 **Hiring team — Recruiter, Admin and Hiring Manager**
 

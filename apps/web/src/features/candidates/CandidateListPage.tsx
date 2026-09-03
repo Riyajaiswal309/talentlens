@@ -61,6 +61,18 @@ export function CandidateListPage() {
         errored={jobQuery.isError}
       />
 
+      {/*
+        Offered only once there is something to compare — a Compare link above
+        an empty list is a control that leads to an empty screen.
+      */}
+      {jobQuery.data && (
+        <div className="mt-4 flex justify-end">
+          <Link to={`/jobs/${jobQuery.data.id}/compare`} className={buttonClass('secondary', 'sm')}>
+            Compare candidates
+          </Link>
+        </div>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-xl font-semibold text-neutral-900">
           Candidates

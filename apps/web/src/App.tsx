@@ -14,6 +14,7 @@ import { JobCreatePage } from './features/jobs/JobCreatePage';
 import { JobEditPage } from './features/jobs/JobEditPage';
 import { CandidateListPage } from './features/candidates/CandidateListPage';
 import { CandidateRoute } from './features/candidates/CandidateRoute';
+import { CandidateComparePage } from './features/candidates/CandidateComparePage';
 import { FunnelPage } from './features/analytics/FunnelPage';
 import { PipelineBoard } from './features/pipeline/PipelineBoard';
 import { DashboardPage } from './features/dashboard/DashboardPage';
@@ -90,6 +91,12 @@ export function App() {
 
             {/* RC-09. A tab of the job hub, so it sits under the job's path. */}
             <Route path="/jobs/:jobId/pipeline" element={<PipelineBoard />} />
+            {/*
+              Decision support, so Recruiter/Admin only: a Hiring Manager
+              assesses the candidate in front of them rather than ranking a
+              shortlist against each other.
+            */}
+            <Route path="/jobs/:jobId/compare" element={<CandidateComparePage />} />
             {/* RC-08. Also a job tab — the weighting is per requisition. */}
             <Route path="/jobs/:jobId/ranking-weights" element={<RankingWeightsPage />} />
 
