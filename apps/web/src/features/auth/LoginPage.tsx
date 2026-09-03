@@ -1,5 +1,6 @@
 import { useId, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import type { Location, Path, To } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
 import { LogoMark } from '../../components/icons';
 import { isApiError } from '../../lib/problem-details';
@@ -36,8 +37,38 @@ function destinationFor(role: string | undefined): string {
   return role === 'HIRING_MANAGER' ? '/my-reviews' : DEFAULT_DESTINATION;
 }
 
+/**
+ * Where `RequireAuth` was sending the user before it bounced them here.
+ *
+ * `search` AND `hash`, NOT JUST `pathname` — and that is the whole point of
+ * this type. `RequireAuth` stashes the entire `location`, so the query string
+ * is present in the state; reading back only `pathname` silently discarded it
+ * and returned the user to a bare URL.
+ *
+ * That was not cosmetic. The Google Calendar consent flow returns to
+ * `/settings/calendar/callback?provider=…&code=…&state=…`; a cold load there
+ * bounces through this screen, and the round trip stripped the query, so the
+ * callback found no `code` to exchange and no connection was ever made. Any
+ * deep link whose meaning lives in its query string had the same problem.
+ *
+ * Shaped as `Partial<Path>` so it can be handed straight to `Navigate`/
+ * `navigate`, which accept a partial path object — no string concatenation,
+ * and no chance of forgetting the `?` or `#`.
+ */
 interface LocationState {
-  from?: { pathname?: string };
+  from?: Partial<Path>;
+}
+
+/**
+ * The destination after sign-in: the deep link if there was one, else the
+ * role's landing screen.
+ *
+ * Returns the location OBJECT untouched when there is one, so `search` and
+ * `hash` survive exactly as they arrived.
+ */
+function destinationFrom(location: Location, role: string | undefined): To {
+  const from = (location.state as LocationState | null)?.from;
+  return from?.pathname ? from : destinationFor(role);
 }
 
 /**
@@ -67,8 +98,7 @@ export function LoginPage() {
   // Already signed in — nothing to do here. Sending them to the app rather
   // than showing a form they cannot use.
   if (status === 'authenticated') {
-    const from = (location.state as LocationState | null)?.from?.pathname;
-    return <Navigate to={from ?? destinationFor(user?.role)} replace />;
+    return <Navigate to={destinationFrom(location, user?.role)} replace />;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -87,13 +117,12 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       const principal = await signIn(email.trim(), password);
-      const from = (location.state as LocationState | null)?.from?.pathname;
       /*
        * `principal` rather than the context's `user`: `signIn` resolves with the
        * authenticated identity, and reading `user` here would still hold the
        * pre-sign-in value on this render.
        */
-      navigate(from ?? destinationFor(principal.role), { replace: true });
+      navigate(destinationFrom(location, principal.role), { replace: true });
     } catch (error) {
       /*
        * The server's own words. §23.1 gives every failure a `detail` written to

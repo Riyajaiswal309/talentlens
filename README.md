@@ -82,25 +82,28 @@ TalentLens splits the work along that line.
 
 ### Implemented and demonstrable
 
-| Area                    | What works                                                                                                          |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating single-use 7-day refresh cookie             |
-| Role-based access       | Four roles enforced per route; Recruiter, Admin and Hiring Manager each have their own console surface              |
-| Public careers site     | Anonymous job list and detail, application form with resume upload, idempotent submission                           |
-| Job requisitions        | List with department/status filters and cursor pagination, create, edit, publish, close, duplicate                  |
-| Job assignments         | Assign a Hiring Manager or Admin to a requisition; drives the "assigned jobs only" rule                             |
-| Resume parsing          | Real PDF/DOCX text extraction, contact and skill extraction, per-field confidence, parser name and version recorded |
-| Match scoring           | `baseline-rules-v1` — deterministic, explainable, self-disclosing its own ceiling (see below)                       |
-| Candidate management    | Per-job candidate list, application detail, comment thread                                                          |
-| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                                       |
-| Stage history           | Every transition recorded with actor and timestamp, shown as a timeline                                             |
-| Tags                    | Free-text tags per application, case-insensitive uniqueness, plus bulk tagging from the pipeline                    |
-| Structured interviewing | Scorecards with 1–5 ratings and notes, one scorecard per reviewer per application                                   |
-| Interview scheduling    | Recruiter offers slots or books a time directly; candidate self-schedules via a signed link                         |
-| Hiring Manager console  | Review queue, assigned jobs only, candidate review with score, scorecards, comments, tags and interviews            |
-| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance                   |
-| Analytics               | Funnel with conversion and time-in-stage, time-to-hire (mean and median), source-of-hire                            |
-| Audit trail             | Append-only log with an Admin-only read and CSV/JSON export                                                         |
+| Area                    | What works                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Authentication          | Email/password login, Argon2id hashes, 15-minute access token, rotating single-use 7-day refresh cookie                                             |
+| Role-based access       | Four roles enforced per route; Recruiter, Admin and Hiring Manager each have their own console surface                                              |
+| Public careers site     | Anonymous job list and detail, application form with resume upload, idempotent submission                                                           |
+| Job requisitions        | List with department/status filters and cursor pagination, create, edit, publish, close, duplicate                                                  |
+| Job assignments         | Assign a Hiring Manager or Admin to a requisition; drives the "assigned jobs only" rule                                                             |
+| Resume parsing          | Real PDF/DOCX text extraction, contact and skill extraction, per-field confidence, parser name and version recorded                                 |
+| Match scoring           | `baseline-rules-v1` — deterministic, explainable, self-disclosing its own ceiling (see below)                                                       |
+| Skill match analysis    | Matched vs not-detected required skills, coverage, and suggested interview focus — same rule as the score                                           |
+| Candidate management    | Per-job candidate list, application detail, comment thread                                                                                          |
+| Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                                                                       |
+| Stage history           | Every transition recorded with actor and timestamp, shown as a timeline                                                                             |
+| Tags                    | Free-text tags per application, case-insensitive uniqueness, plus bulk tagging from the pipeline                                                    |
+| Structured interviewing | Scorecards with 1–5 ratings and notes, one scorecard per reviewer per application                                                                   |
+| Interview scheduling    | Recruiter offers slots or books a time directly; candidate self-schedules via a signed link; interviews can be cancelled, which also kills the link |
+| Hiring Manager console  | Review queue, assigned jobs only, candidate review with score, scorecards, comments, tags and interviews                                            |
+| Job assignment UI       | Assign and remove hiring managers on the job screen; drives what the assignee can open                                                              |
+| Calendar connections    | Screen to connect/disconnect your own Google or Outlook calendar; states plainly when a provider is unconfigured                                    |
+| Ranking configuration   | Per-job weights over the six permitted features, live sum validation against the server tolerance                                                   |
+| Analytics               | Funnel with conversion and time-in-stage, time-to-hire (mean and median), source-of-hire                                                            |
+| Audit trail             | Append-only log with an Admin-only read and CSV/JSON export                                                                                         |
 
 ### What is deliberately _not_ claimed
 
@@ -138,7 +141,7 @@ parsing and scoring now run inside the Node API — a deviation recorded in
 | API docs       | Swagger / OpenAPI at `/api/docs`                                          |
 | Resume text    | `pdf-parse` (PDF), `mammoth` (DOCX) — no OCR                              |
 | Calendar       | `googleapis`, `@azure/msal-node` + Microsoft Graph (credentials required) |
-| Testing        | Jest — 48 API spec files, 960 tests. **No frontend test harness yet**     |
+| Testing        | Jest — 48 API spec files, 964 tests. **No frontend test harness yet**     |
 | Tooling        | ESLint, Prettier, Husky + lint-staged                                     |
 
 **Deliberately absent from the frontend:** no charting library, no drag-and-drop
@@ -539,9 +542,13 @@ yields no text and reports the limitation rather than failing silently.
 
 **Not built:**
 
-- **RC-14 parse-review queue** — `GET /v1/jobs/:id/parse-review` and
-  `PATCH /v1/parsed-profiles/:id` exist and are tested, but there is no screen; the nav
-  entry renders disabled. There is also no cross-job aggregate endpoint.
+- **RC-14 parse-review queue has no screen.** Both endpoints exist, are tested, and now
+  genuinely work: `contact.*` fields are editable and a corrected value is persisted (two
+  defects fixed — previously every flagged field answered 400, and the corrected value was
+  discarded). What is missing is the UI, and a _global_ queue cannot be built at all:
+  `GET /v1/jobs/:id/parse-review` is job-scoped with no cross-job aggregate, so the nav
+  entry stays disabled. **PRD GAP — whether a job-scoped review screen satisfies FR3.2
+  needs a decision.**
 - **RC-11 as a standalone screen** — interviews are arranged from the candidate page,
   where they belong. The API exposes interviews only per application
   (`GET /v1/applications/:id/interviews`), so a tenant-wide Interviews screen has nothing
@@ -551,8 +558,6 @@ yields no text and reports the limitation rather than failing silently.
 - **Cancelling does not remove an external calendar event.** `CalendarProvider` has no
   delete, so `calendar_event_id` is left intact as a true record of what was created and
   the UI says the invitation must be withdrawn by hand.
-- **Assignment management UI** — `POST`/`DELETE /v1/jobs/:id/assignments` are implemented
-  and tested, but assigning a Hiring Manager is currently an API call, not a screen.
 - **No email.** There is no mailer in the repository. The candidate scheduling link must
   be copied and sent by the recruiter, and the UI states this rather than implying
   delivery.
@@ -848,16 +853,16 @@ so `npx tsc -b` at the repository root fails with `TS5083`.
 
 **Current results.** Every gate below passes as of the latest commit:
 
-| Gate                                  | Result                                    |
-| ------------------------------------- | ----------------------------------------- |
-| API test suite (`--maxWorkers=2`)     | **960 passed / 960**, 48 suites, ~35s     |
-| `tsc --noEmit` (api)                  | clean                                     |
-| `nest build`                          | clean                                     |
-| `tsc -b` (web)                        | clean                                     |
-| `vite build`                          | 432.18 kB (121.88 kB gzip) + 31.61 kB CSS |
-| `eslint apps/api` · `eslint apps/web` | 0 problems                                |
-| `prettier --check .`                  | clean                                     |
-| `git diff --check`                    | clean                                     |
+| Gate                                  | Result                                   |
+| ------------------------------------- | ---------------------------------------- |
+| API test suite (`--maxWorkers=2`)     | **964 passed / 964**, 48 suites, ~42s    |
+| `tsc --noEmit` (api)                  | clean                                    |
+| `nest build`                          | clean                                    |
+| `tsc -b` (web)                        | clean                                    |
+| `vite build`                          | 441.46 kB (123.94 kB gzip) + 31.7 kB CSS |
+| `eslint apps/api` · `eslint apps/web` | 0 problems                               |
+| `prettier --check .`                  | clean                                    |
+| `git diff --check`                    | clean                                    |
 
 **Run the API suite with `--maxWorkers=2`.** Jest defaults to one worker per core, and
 each worker boots a full Nest application plus a Prisma pool; on an 8-core machine that

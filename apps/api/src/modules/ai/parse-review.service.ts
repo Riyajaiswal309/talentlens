@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole, type ParsedProfile } from '@prisma/client';
+import { Prisma, UserRole, type ParsedProfile } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import type { AuthenticatedUser } from '../../common/types/authenticated-request';
 import {
@@ -49,6 +49,78 @@ function readFieldPath(profile: ParsedProfile, path: string): unknown {
     value = (value as Record<string, unknown>)[segment];
   }
   return value;
+}
+
+/** The four JSON columns a field path may address, by their path root. */
+const COLUMN_BY_ROOT = {
+  contact: 'contact',
+  skills: 'skills',
+  work_history: 'workHistory',
+  education: 'education',
+  certifications: 'certifications',
+} as const;
+
+type ColumnRoot = keyof typeof COLUMN_BY_ROOT;
+
+/**
+ * Apply a corrected value at `path`, returning the column patches to persist.
+ *
+ * THE VALUE IS ACTUALLY WRITTEN. `patch` previously updated only confidence and
+ * confirmations, so a "correction" recorded that a human had looked at a field
+ * while leaving the parser's wrong value in place — and everything downstream,
+ * the scorer included, went on reading the wrong value.
+ *
+ * Only the roots `isKnownFieldPath` already admitted are reachable, and the
+ * segment names are constrained to `[a-z_]+` by that same grammar, so no
+ * `__proto__` or `constructor` key can be addressed here.
+ */
+function writeFieldPath(
+  profile: ParsedProfile,
+  path: string,
+  value: unknown,
+): Partial<Record<(typeof COLUMN_BY_ROOT)[ColumnRoot], unknown>> | null {
+  const [head, ...rest] = path.split('.');
+  const match = /^([a-z_]+)(?:\[(\d+)\])?$/.exec(head ?? '');
+  if (!match) return null;
+
+  const root = match[1] as ColumnRoot;
+  if (!(root in COLUMN_BY_ROOT)) return null;
+
+  const index = match[2];
+
+  const column = COLUMN_BY_ROOT[root];
+  // Cloned, never mutated in place: Prisma hands back the stored JSON and a
+  // mutation would make the "before" snapshot in the audit record untrue.
+  const current = structuredClone(profile[column]) as unknown;
+
+  // `skills` — the whole array.
+  if (index === undefined && rest.length === 0) {
+    return { [column]: value };
+  }
+
+  // `skills[1]` — one element.
+  if (index !== undefined && rest.length === 0) {
+    if (!Array.isArray(current)) return null;
+    const next = [...current];
+    next[Number(index)] = value;
+    return { [column]: next };
+  }
+
+  // `contact.name`, `education[0].degree` — a leaf inside an object.
+  const container =
+    index === undefined ? current : Array.isArray(current) ? current[Number(index)] : undefined;
+
+  if (container === null || typeof container !== 'object') return null;
+
+  let cursor = container as Record<string, unknown>;
+  for (const segment of rest.slice(0, -1)) {
+    const next = cursor[segment];
+    if (next === null || typeof next !== 'object') return null;
+    cursor = next as Record<string, unknown>;
+  }
+  cursor[rest[rest.length - 1] as string] = value;
+
+  return { [column]: current };
 }
 
 @Injectable()
@@ -180,7 +252,26 @@ export class ParseReviewService {
     const confirmed: string[] = [];
     const now = new Date().toISOString();
 
+    /*
+     * Two separate effects, and they are not the same thing. The VALUE is
+     * written whenever one is supplied — that is the correction. `confirmed`
+     * additionally pins confidence to 1.0 and records who vouched for it, which
+     * is what takes the field out of the review queue. A caller may correct
+     * without confirming, and the queue will still show the field.
+     */
+    const columnPatches: Record<string, unknown> = {};
+
     for (const [path, correction] of Object.entries(fields)) {
+      const patched = writeFieldPath(
+        { ...before, ...columnPatches } as ParsedProfile,
+        path,
+        correction.value,
+      );
+      if (!patched) {
+        throw new BadRequestException(`Field path does not resolve in this profile: ${path}`);
+      }
+      Object.assign(columnPatches, patched);
+
       if (correction.confirmed) {
         confidence[path] = 1;
         confirmations[path] = { by: user.id, at: now };
@@ -190,7 +281,11 @@ export class ParseReviewService {
 
     const after = await this.prisma.parsedProfile.update({
       where: { id: before.id },
-      data: { fieldConfidence: confidence, fieldConfirmations: confirmations },
+      data: {
+        ...(columnPatches as Prisma.ParsedProfileUpdateInput),
+        fieldConfidence: confidence,
+        fieldConfirmations: confirmations,
+      },
     });
 
     return { before, after, confirmed };

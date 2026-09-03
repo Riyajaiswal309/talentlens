@@ -9,6 +9,7 @@ import { CommentThread } from './CommentThread';
 import { ScorecardList } from './ScorecardList';
 import { TagPanel } from './TagPanel';
 import { ScorePanel } from './ScorePanel';
+import { SkillGapPanel } from './SkillGapPanel';
 import { InterviewPanel } from './InterviewPanel';
 import { formatStage } from './useJobCandidates';
 import {
@@ -149,6 +150,16 @@ export function CandidateDetailPage() {
             aiScoringEnabled={aiScoringEnabled}
             jobLoading={job.isPending}
             applicationId={applicationId}
+          />
+          {/*
+            Sits directly under the score because it is the same judgement in
+            detail: the score's one measured feature is skill overlap, and this
+            names the skills behind that number.
+          */}
+          <SkillGapPanel
+            requiredSkills={job.data?.requiredSkills}
+            candidateSkills={detail.resume?.parsedProfile?.skills ?? null}
+            parsed={Boolean(detail.resume?.parsedProfile)}
           />
           <ApplicationFacts detail={detail} />
           <StageHistoryPanel detail={detail} />

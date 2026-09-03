@@ -759,6 +759,95 @@ describe('Phase 3 integration (FR3.2, FR4.2, FR4.4, BR-02, BR-07)', () => {
       expect(confirmations['skills[1]']?.by).toBe(recruiterA);
     });
 
+    /*
+     * REGRESSION — the two defects that made the review queue unactionable.
+     *
+     * 1. `contact.*` was outside the editable field grammar, while the real
+     *    parser flags almost nothing else: it caps `contact.name` at 0.7 and an
+     *    unprefixed `contact.phone` at 0.6, both below the 0.75 threshold. Every
+     *    flagged field therefore answered 400.
+     * 2. `patch` wrote confidence and confirmations but DISCARDED the corrected
+     *    value, so a "correction" left the parser's wrong value in place for the
+     *    scorer and every other reader.
+     *
+     * The original fixtures hid both by seeding `field_confidence` with
+     * `skills[0]` and `education[0].degree` — paths the parser never emits.
+     */
+    it('corrects a flagged contact field and PERSISTS the new value', async () => {
+      await owner.parsedProfile.update({
+        where: { id: reviewProfile },
+        data: {
+          contact: { name: 'P R I Y A', email: 'priya@example.com', phone: null, location: null },
+          fieldConfidence: { 'contact.name': 0.7 },
+          fieldConfirmations: {},
+        },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/parsed-profiles/${reviewProfile}`)
+        .set(auth(await tokenFor(recruiterA)))
+        .send({ fields: { 'contact.name': { value: 'Priya Sharma', confirmed: true } } })
+        .expect(200);
+
+      const profile = await owner.parsedProfile.findUniqueOrThrow({ where: { id: reviewProfile } });
+      const contact = profile.contact as Record<string, unknown>;
+
+      // The correction actually landed...
+      expect(contact.name).toBe('Priya Sharma');
+      // ...and did not disturb its siblings.
+      expect(contact.email).toBe('priya@example.com');
+      // ...and confirming still pins the confidence and the actor.
+      expect((profile.fieldConfidence as Record<string, number>)['contact.name']).toBe(1);
+    });
+
+    it('writes the value even when the field is corrected but NOT confirmed', async () => {
+      await owner.parsedProfile.update({
+        where: { id: reviewProfile },
+        data: {
+          contact: { name: 'wrong', email: null, phone: null, location: null },
+          fieldConfidence: { 'contact.name': 0.5 },
+          fieldConfirmations: {},
+        },
+      });
+
+      const response = await request(app.getHttpServer())
+        .patch(`/parsed-profiles/${reviewProfile}`)
+        .set(auth(await tokenFor(recruiterA)))
+        .send({ fields: { 'contact.name': { value: 'Corrected Name', confirmed: false } } })
+        .expect(200);
+
+      // Not confirmed, so nothing is vouched for — but the value changed.
+      expect(response.body.confirmedFields).toEqual([]);
+      const profile = await owner.parsedProfile.findUniqueOrThrow({ where: { id: reviewProfile } });
+      expect((profile.contact as Record<string, unknown>).name).toBe('Corrected Name');
+      // Still flagged: confidence is untouched by a correction alone.
+      expect((profile.fieldConfidence as Record<string, number>)['contact.name']).toBe(0.5);
+    });
+
+    it('corrects one element of the skills array without dropping the rest', async () => {
+      await owner.parsedProfile.update({
+        where: { id: reviewProfile },
+        data: { skills: ['Python', 'SQLL', 'AWS'], fieldConfidence: { 'skills[1]': 0.4 } },
+      });
+
+      await request(app.getHttpServer())
+        .patch(`/parsed-profiles/${reviewProfile}`)
+        .set(auth(await tokenFor(recruiterA)))
+        .send({ fields: { 'skills[1]': { value: 'SQL', confirmed: true } } })
+        .expect(200);
+
+      const profile = await owner.parsedProfile.findUniqueOrThrow({ where: { id: reviewProfile } });
+      expect(profile.skills).toEqual(['Python', 'SQL', 'AWS']);
+    });
+
+    it('still refuses a path outside the grammar', async () => {
+      await request(app.getHttpServer())
+        .patch(`/parsed-profiles/${reviewProfile}`)
+        .set(auth(await tokenFor(recruiterA)))
+        .send({ fields: { __proto__: { value: 'x', confirmed: true } } })
+        .expect(400);
+    });
+
     it('a confirmed field leaves the review queue', async () => {
       const response = await request(app.getHttpServer())
         .get(`/jobs/${unscoredJob}/parse-review?limit=100`)
