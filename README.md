@@ -93,6 +93,7 @@ TalentLens splits the work along that line.
 | Match scoring           | `baseline-rules-v1` — deterministic, explainable, self-disclosing its own ceiling (see below)                                                       |
 | Skill match analysis    | Matched vs not-detected required skills, coverage, and suggested interview focus — same rule as the score                                           |
 | Candidate comparison    | Compare up to 4 candidates on score, skill coverage, matched/not-detected skills and stage                                                          |
+| Decision record         | Separates advisory scoring from human decisions, with actor and timestamp per stage change                                                          |
 | Candidate management    | Per-job candidate list, application detail, comment thread                                                                                          |
 | Pipeline                | Six-stage board, single and bulk stage moves, optimistic update with rollback                                                                       |
 | Stage history           | Every transition recorded with actor and timestamp, shown as a timeline                                                                             |
@@ -524,6 +525,45 @@ because that button could only answer 503.
 
 ---
 
+## Deploying
+
+**TalentLens must be served same-origin.** This is an architectural constraint, not a
+missing setting, and it follows from two deliberate security decisions:
+
+- The API calls no `enableCors()` — CORS is off entirely.
+- The refresh token is `SameSite=Strict; Path=/v1/auth`, so it is not sent cross-site.
+
+A cross-origin frontend could therefore neither read a response nor keep a session. The
+client uses root-relative `/v1/...` paths with **no configurable base URL** on purpose;
+adding one would let a deployment be pointed at another origin and then fail
+authentication in a way that looks like a bug.
+
+The supported shape is a single origin with a reverse proxy:
+
+```
+https://your-host/            ->  the built frontend (apps/web/dist, static)
+https://your-host/v1/*        ->  the NestJS API
+```
+
+nginx, Caddy, or any platform router will do this. Locally the Vite dev proxy plays the
+same role (`vite.config.ts`), which is why development needs no extra configuration.
+
+Also required in production:
+
+- `APP_DATABASE_URL` set to the **restricted** database role. If unset the API connects
+  as the owner and logs that `audit_logs` append-only enforcement is **not** active.
+- `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` — distinct; the API refuses to start if
+  they match. Generate with `openssl rand -base64 48`.
+- `CALENDAR_TOKEN_ENCRYPTION_KEY`, and provider OAuth redirect URIs re-registered for the
+  production origin.
+- Managed PostgreSQL 15, Redis 7 and S3-compatible storage in place of the local compose
+  services.
+
+**This has not been deployed or verified on real infrastructure.** The list above is what
+the code requires, not a tested runbook.
+
+---
+
 ## Known limitations
 
 Stated plainly, because the point of the build is that it does not overclaim.
@@ -560,6 +600,11 @@ yields no text and reports the limitation rather than failing silently.
 - **Cancelling does not remove an external calendar event.** `CalendarProvider` has no
   delete, so `calendar_event_id` is left intact as a true record of what was created and
   the UI says the invitation must be withdrawn by hand.
+- **Stage changes record who and when, but not why.** `stage_history` has no reason
+  column and `ChangeStageDto` accepts only `toStage`, so a structured decision reason
+  would need a schema and API change. **PRD GAP — REQUIRES DECISION.** The candidate
+  screen says so and points at the comment thread, which is where a reason can live today.
+  A score override is the exception: BR-02 makes its reason mandatory.
 - **No email.** There is no mailer in the repository. The candidate scheduling link must
   be copied and sent by the recruiter, and the UI states this rather than implying
   delivery.

@@ -10,6 +10,7 @@ import { ScorecardList } from './ScorecardList';
 import { TagPanel } from './TagPanel';
 import { ScorePanel } from './ScorePanel';
 import { SkillGapPanel } from './SkillGapPanel';
+import { DecisionRecordPanel } from './DecisionRecordPanel';
 import { InterviewPanel } from './InterviewPanel';
 import { formatStage } from './useJobCandidates';
 import {
@@ -162,6 +163,15 @@ export function CandidateDetailPage() {
             parsed={Boolean(detail.resume?.parsedProfile)}
           />
           <ApplicationFacts detail={detail} />
+          {/*
+            Placed directly above the timeline it summarises: the record says
+            who decided, the timeline says in what order.
+          */}
+          <DecisionRecordPanel
+            detail={detail}
+            scorecardCount={scorecards.data?.length}
+            commentCount={comments.data?.length}
+          />
           <StageHistoryPanel detail={detail} />
           <CommentThread applicationId={applicationId} query={comments} />
         </div>
